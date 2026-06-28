@@ -16,11 +16,11 @@ using CecilCil = Mono.Cecil.Cil;
 // ============================================================================
 public class Injector
 {
-    // === 路径配置（硬编码，建新项目时改为你的路径） ===
-    const string GAME_MANAGED = "F:/Codex/GAMEORI/MegabytePunch_Data/Managed";
+    // === 路径配置 ===
+    const string GAME_MANAGED = "F:/Codex/MBP_PROJ/ModdedGame/MegabytePunch_Data/Managed";
     const string TARGET_DLL = GAME_MANAGED + "/Assembly-CSharp.dll";
-    const string BACKUP_DLL = GAME_MANAGED + "/Assembly-CSharp.dll.orig";      // 原版备份（只备份一次）
-    const string MBP_MODLOADER_DLL = GAME_MANAGED + "/MBPModLoader.dll";       // 要注入引用的 mod 框架
+    const string BACKUP_DLL = GAME_MANAGED + "/Assembly-CSharp.dll.orig";
+    const string MBP_MODLOADER_DLL = GAME_MANAGED + "/MBPModLoader.dll";
 
     static int Main(string[] args)
     {

@@ -1,9 +1,5 @@
 /target:exe
-/out:"F:\Codex\modloader\injector\Injector.exe"
-/reference:"F:\Codex\modloader\injector\Mono.Cecil.dll"
-/reference:"F:\Codex\GAMEORI\MegabytePunch_Data\Managed\UnityEngine.dll"
-/reference:"F:\Codex\GAMEORI\MegabytePunch_Data\Managed\mscorlib.dll"
-/reference:"F:\Codex\GAMEORI\MegabytePunch_Data\Managed\System.dll"
-/nostdlib
-/noconfig
-F:\Codex\modloader\injector\Injector.cs
+/out:build\Injector.exe
+/reference:deps\Cecil\Mono.Cecil.dll
+/reference:deps\Unity\UnityEngine.dll
+src\injector\Injector.cs

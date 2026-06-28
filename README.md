@@ -10,15 +10,14 @@ PunchLoader/
 │   ├── injector/  Injector.exe — 用 Mono.Cecil 离线修改 Assembly-CSharp.dll
 │   └── modloader/ PunchModLoader.dll — 游戏内 mod 框架
 ├── deps/         编译依赖（Cecil、UnityEngine、游戏 dll）
-├── samples/      示例 mod
 ├── docs/         技术文档
 └── scripts/      编译 / 注入 / 部署脚本
 ```
 
 ## 快速开始
 
-1. 把 `samples/ChineseLocalization/` 放到 `{游戏目录}/MegabytePunch_Data/Mods/ChineseLocalization/`
-2. 运行 `scripts/build_all.ps1` 编译所有
+1. 运行 `scripts/build_all.ps1` 编译所有
+2. 运行 `scripts/deploy.ps1` 部署到游戏目录
 3. 运行 `scripts/inject.ps1` 注入 Assembly-CSharp.dll
 4. 启动游戏
 
