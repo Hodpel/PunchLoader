@@ -1,0 +1,27 @@
+# 编译产物
+*.exe
+*.dll
+*.pdb
+*.mdb
+
+# IDE
+.vs/
+*.suo
+*.user
+*.csproj.user
+[Dd]ebug/
+[Rr]elease/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# 游戏完整目录（太大，不提交 Game/）
+Game/
+
+# 备份
+*.orig
+*.backup
+
+# 项目内零时工具（不提交）
+setup.ps1

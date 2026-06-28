@@ -1,0 +1,7 @@
+/target:library
+/out:"F:\Codex\GAMEORI\MegabytePunch_Data\Managed\MBPModLoader.dll"
+/reference:"F:\Codex\GAMEORI\MegabytePunch_Data\Managed\UnityEngine.dll"
+/reference:"F:\Codex\GAMEORI\MegabytePunch_Data\Managed\Assembly-CSharp.dll"
+/reference:"F:\Codex\GAMEORI\MegabytePunch_Data\Managed\mscorlib.dll"
+/nostdlib
+F:\Codex\MBPModLoader.cs
