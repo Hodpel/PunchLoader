@@ -443,12 +443,17 @@ namespace PunchLoader
     public delegate void BeginGUIHandler(MonoBehaviour menu);
     public delegate string PreDoActionHandler(string action);
     public delegate string TextTransformHandler(string text);
+    // A renderer can preserve the original GUILayout pass for layout/hit testing,
+    // then draw a replacement string into that exact final rectangle.
+    public delegate bool GUILayoutLabelHandler(string originalText, string renderedText,
+        GUIStyle style, GUILayoutOption[] options);
 
     public static class HookManager
     {
         private static List<BeginGUIHandler> _beginGUIHandlers = new List<BeginGUIHandler>();
         private static List<PreDoActionHandler> _preDoActionHandlers = new List<PreDoActionHandler>();
         private static List<TextTransformHandler> _textTransformHandlers = new List<TextTransformHandler>();
+        private static List<GUILayoutLabelHandler> _gUILayoutLabelHandlers = new List<GUILayoutLabelHandler>();
 
         public static void Register(BeginGUIHandler handler)
         {
@@ -468,6 +473,12 @@ namespace PunchLoader
                 _textTransformHandlers.Add(handler);
         }
 
+        public static void Register(GUILayoutLabelHandler handler)
+        {
+            if (handler != null && !_gUILayoutLabelHandlers.Contains(handler))
+                _gUILayoutLabelHandlers.Add(handler);
+        }
+
         public static void Unregister(BeginGUIHandler handler)
         {
             if (handler != null) _beginGUIHandlers.Remove(handler);
@@ -481,6 +492,11 @@ namespace PunchLoader
         public static void Unregister(TextTransformHandler handler)
         {
             if (handler != null) _textTransformHandlers.Remove(handler);
+        }
+
+        public static void Unregister(GUILayoutLabelHandler handler)
+        {
+            if (handler != null) _gUILayoutLabelHandlers.Remove(handler);
         }
 
         public static void Dispatch(MonoBehaviour menu)
@@ -524,6 +540,21 @@ namespace PunchLoader
             }
             return current;
         }
+
+        public static bool DispatchGUILayoutLabel(string originalText, string renderedText,
+            GUIStyle style, GUILayoutOption[] options)
+        {
+            GUILayoutLabelHandler[] handlers = _gUILayoutLabelHandlers.ToArray();
+            for (int i = 0; i < handlers.Length; i++)
+            {
+                try
+                {
+                    if (handlers[i](originalText, renderedText, style, options)) return true;
+                }
+                catch (Exception ex) { Debug.LogError("[PunchLoader] GUILayout label hook failed: " + ex); }
+            }
+            return false;
+        }
     }
 
     public static class HookDispatcher
@@ -542,12 +573,17 @@ namespace PunchLoader
         // 文本保持为原始动作键，渲染时才转换，避免修改 menuEntries 后再反向恢复。
         public static void GUILayoutLabel(string text, GUIStyle style, GUILayoutOption[] options)
         {
-            GUILayout.Label(HookManager.DispatchText(text), style, options);
+            string rendered = HookManager.DispatchText(text);
+            if (!HookManager.DispatchGUILayoutLabel(text, rendered, style, options))
+                GUILayout.Label(rendered, style, options);
         }
 
         public static void GUILayoutLabel(string text, GUILayoutOption[] options)
         {
-            GUILayout.Label(HookManager.DispatchText(text), options);
+            string rendered = HookManager.DispatchText(text);
+            GUIStyle style = GUI.skin == null ? null : GUI.skin.label;
+            if (!HookManager.DispatchGUILayoutLabel(text, rendered, style, options))
+                GUILayout.Label(rendered, options);
         }
     }
 

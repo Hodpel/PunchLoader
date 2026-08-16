@@ -2,6 +2,7 @@
 adventure	冒险模式
 fight	对战模式
 options	选项
+mods	模组
 quit	退出游戏
 continue	继续
 new game	新游戏
@@ -40,6 +41,28 @@ right	右
 left	左
 up	上
 down	下
+space	空格
+return	回车
+enter	回车
+backspace	退格
+left ctrl	左 Ctrl
+right ctrl	右 Ctrl
+left shift	左 Shift
+right shift	右 Shift
+left alt	左 Alt
+right alt	右 Alt
+left cmd	左 Cmd
+right cmd	右 Cmd
+mouse 0	鼠标 0
+joystick 1 button 0	手柄 1 按键 0
+LS Hor 1	左摇杆横轴 1
+LS Vert 1	左摇杆纵轴 1
+RS Hor 1	右摇杆横轴 1
+RS Vert 1	右摇杆纵轴 1
+PadHor 1	十字键横轴 1
+PadVert 1	十字键纵轴 1
+LT 1	左扳机 1
+RT 1	右扳机 1
 attack	攻击
 specialAbility	特殊能力
 special ability	特殊能力
@@ -75,5 +98,6 @@ this will delete all your progress!	这会删除全部游戏进度！
 use default gamepad controls?	使用默认手柄按键吗？
 LOADED MODS	已加载的模组
 MODS	模组
+ChineseLocalization	简体中文
 <  Prev	<  上一页
 Next  >	下一页  >

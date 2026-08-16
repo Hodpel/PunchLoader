@@ -1,14 +1,18 @@
 # ChineseLocalization
 
-PunchLoader 的简体中文模组。它在 `OnLoad()` 中同步加载图集与翻译表，随后才注册渲染回调；文本在 `GUILayout.Label` 真正绘制前转换，原始菜单动作键不会被改写。
+PunchLoader 的简体中文模组。它在 `OnLoad()` 中同步加载图集与翻译表，随后才注册渲染回调；文本在 `GUILayout.Label` 真正绘制前转换，原始菜单动作键不会被改写。图集保留游戏原始 ACKNOWTT 的 ASCII 字形，并使用 BoutiqueBitmap 中文字形，因此同一行里的英文仍为原版风格。
 
 ## 构建
 
 ```powershell
-C:\Users\HODPEL\AppData\Local\Programs\Python\Python311\python.exe tools\build_font_atlas.py
+py -3.11 tools\build_font_atlas.py `
+  --ack-font ..\文件整理\ExportedProject\Assets\Font\ACKNOWTT_white.asset `
+  --ack-texture "..\文件整理\ExportedProject\Assets\Texture2D\Font Texture_0.texture2D" `
+  --ack-small-font ..\文件整理\ExportedProject\Assets\Font\ACKNOWTT_white_small.asset `
+  --ack-small-texture "..\文件整理\ExportedProject\Assets\Texture2D\Font Texture_2.texture2D"
 C:\Windows\Microsoft.NET\Framework\v3.5\csc.exe @mods\ChineseLocalization\build.rsp
 ```
 
-生成的 `font_atlas.png` 和 `glyphs.tsv` 与 DLL、`plugin.json` 一并放入游戏的 `MegabytePunch_Data\Mods\ChineseLocalization\`。
+生成的常规与小字号图集（`font_atlas*.png`、`glyphs*.tsv`）与 DLL、`plugin.json` 一并放入游戏的 `MegabytePunch_Data\Mods\ChineseLocalization\`。
 
-字体：Noto Sans SC Regular，采用 SIL Open Font License 1.1；发布包必须保留 `FONT_LICENSE.txt` 与 `FONT_NOTICE.md`。
+字体：BoutiqueBitmap 9x9 Bold 1.93（Add Spacing），采用 SIL Open Font License 1.1；发布包必须保留 `FONT_LICENSE.txt` 与 `FONT_NOTICE.md`。英文 ASCII 字形来自游戏原版 ACKNOWTT。

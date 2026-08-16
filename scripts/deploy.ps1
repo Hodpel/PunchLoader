@@ -36,6 +36,8 @@ Copy-Item "$modSource\plugin.json" "$modTarget\plugin.json" -Force
 Copy-Item "$modSource\translations.tsv" "$modTarget\translations.tsv" -Force
 Copy-Item "$modSource\font_atlas.png" "$modTarget\font_atlas.png" -Force
 Copy-Item "$modSource\glyphs.tsv" "$modTarget\glyphs.tsv" -Force
+Copy-Item "$modSource\font_atlas_small.png" "$modTarget\font_atlas_small.png" -Force
+Copy-Item "$modSource\glyphs_small.tsv" "$modTarget\glyphs_small.tsv" -Force
 Copy-Item "$modSource\FONT_LICENSE.txt" "$modTarget\FONT_LICENSE.txt" -Force
 Copy-Item "$modSource\FONT_NOTICE.md" "$modTarget\FONT_NOTICE.md" -Force
 Write-Host "Deployed ChineseLocalization mod"
