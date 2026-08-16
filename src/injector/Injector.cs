@@ -10,8 +10,8 @@ using CecilCil = Mono.Cecil.Cil;
 // 运行时机: 游戏启动前，手动运行一次（或包含在构建脚本中）
 // 功能: 用 Mono.Cecil 修改 Assembly-CSharp.dll 的 IL 字节码，注入 3 个钩子
 //   1. MenuScript.Start() 顶部 → Assembly.LoadFrom + Bootstrap.Init() 引导调用
-//   2. GUILayoutMenuScript.CheckConfirm() → DoAction 前调 MenuLocalizer.TranslateEntry()
-//   3. GUILayoutMenuScript.BeginGUI() 顶部 → FontRouter.Route(this)
+//   2. GUILayoutMenuScript.CheckConfirm() → DoAction 前调 HookDispatcher.PreDoAction()
+//   3. GUILayoutMenuScript.BeginGUI() 顶部 → HookDispatcher.OnBeginGUI(this)
 // 平台: .NET 2.0 / Mono 2.x — 不依赖 Harmony 或任何运行时库
 // ============================================================================
 public class Injector
@@ -120,7 +120,11 @@ public class Injector
             // === 步骤5: 注入 BeginGUI 钩子（零闪烁字体替换） ===
             InjectBeginGUIHook(asm);
 
-            // === 步骤6: 写回修改后的 dll ===
+            // === 步骤6: 将所有 GUILayout.Label 调用改为通用文本包装器 ===
+            // 文本只在绘制时转换，原始 menuEntries 始终保留动作键。
+            InjectGUILayoutLabelHooks(asm);
+
+            // === 步骤7: 写回修改后的 dll ===
             asm.Write(TARGET_DLL);
             Console.WriteLine("[Injector] Done.");
             return 0;
@@ -129,10 +133,10 @@ public class Injector
     }
 
     // ====================================================================
-    // 钩子2: CheckConfirm() 中 DoAction 前插入反向翻译
+    // 钩子2: CheckConfirm() 中 DoAction 前插入通用动作预处理
     // 在 GUILayoutMenuScript.CheckConfirm() 中，每个 callvirt DoAction 之前
-    // 插入 call MenuLocalizer.TranslateEntry(string)
-    // 把菜单上显示的中文文本翻译回英文，保证 DoAction("quit") 的 switch 能匹配
+    // 插入 call HookDispatcher.PreDoAction(string)
+    // mod 可在此把显示文本恢复为动作键，或实现其他确认前处理。
     // ====================================================================
     static void InjectCheckConfirmHook(Cecil.AssemblyDefinition asm)
     {
@@ -152,21 +156,21 @@ public class Injector
 
         Console.WriteLine("[Injector] Found GUILayoutMenuScript.CheckConfirm, patching...");
 
-        // 从 PunchLoader.dll 中 Import MenuLocalizer.TranslateEntry(string)
-        Cecil.MethodReference translateEntry = null;
+        // 从 PunchLoader.dll 中 Import HookDispatcher.PreDoAction(string)
+        Cecil.MethodReference preDoAction = null;
         if (File.Exists(PUNCHLOADER_DLL))
         {
             Cecil.AssemblyDefinition punchLoaderAsm = Cecil.AssemblyDefinition.ReadAssembly(
                 PUNCHLOADER_DLL, new Cecil.ReaderParameters { ReadSymbols = false });
             foreach (Cecil.TypeDefinition t in punchLoaderAsm.MainModule.Types)
             {
-                if (t.Name == "MenuLocalizer")
+                if (t.FullName == "PunchLoader.HookDispatcher")
                 {
                     foreach (Cecil.MethodDefinition m in t.Methods)
                     {
-                        if (m.Name == "TranslateEntry")
+                        if (m.Name == "PreDoAction" && m.Parameters.Count == 1)
                         {
-                            translateEntry = asm.MainModule.Import(m);
+                            preDoAction = asm.MainModule.Import(m);
                             break;
                         }
                     }
@@ -174,9 +178,9 @@ public class Injector
                 }
             }
         }
-        if (translateEntry == null)
+        if (preDoAction == null)
         {
-            Console.WriteLine("WARNING: MenuLocalizer.TranslateEntry not found in PunchLoader.dll");
+            Console.WriteLine("WARNING: HookDispatcher.PreDoAction not found in PunchLoader.dll");
             return;
         }
 
@@ -186,8 +190,8 @@ public class Injector
         //   ldarg.0                       // this
         //   ldarg.0 / ldfld menuEntries / ldarg.0 / ldfld selected / ldelem.ref  // menuEntries[selected]
         //   callvirt GUILayoutMenuScript::DoAction(string)
-        // 在 DoAction 前插 call MenuLocalizer::TranslateEntry(string)
-        // 栈变化: [this, entry] → [this, translated_entry]
+        // 在 DoAction 前插 call HookDispatcher::PreDoAction(string)
+        // 栈变化: [this, entry] → [this, transformed_entry]
 
         int patches = 0;
         CecilCil.Instruction instr = checkConfirm.Body.Instructions[0];
@@ -196,10 +200,10 @@ public class Injector
             if (instr.OpCode == CecilCil.OpCodes.Callvirt &&
                 ((Cecil.MethodReference)instr.Operand).Name == "DoAction")
             {
-                il.InsertBefore(instr, il.Create(CecilCil.OpCodes.Call, translateEntry));
+                il.InsertBefore(instr, il.Create(CecilCil.OpCodes.Call, preDoAction));
                 patches++;
                 Console.WriteLine("[Injector] Patched DoAction call at IL_" +
-                    instr.Offset.ToString("X4") + " with translateEntry hook");
+                    instr.Offset.ToString("X4") + " with PreDoAction hook");
             }
             instr = instr.Next;
         }
@@ -211,11 +215,11 @@ public class Injector
     }
 
     // ====================================================================
-    // 钩子3: BeginGUI() 顶部插入字体路由
+    // 钩子3: BeginGUI() 顶部插入通用 UI 绘制前回调
     // 在 GUILayoutMenuScript.BeginGUI() 的第一条指令前插入
     //   ldarg.0                    // this (GUILayoutMenuScript 实例)
-    //   call FontRouter::Route()   // 翻译文本 + 替换字体
-    // 因为是在 BeginGUI 最顶部，所有后续 GUILayout.Label 看到的都是已翻译的文本
+    //   call HookDispatcher::OnBeginGUI()
+    // 因为是在 BeginGUI 最顶部，mod 可在任何 GUILayout 绘制前更新状态与样式。
     // ====================================================================
     static void InjectBeginGUIHook(Cecil.AssemblyDefinition asm)
     {
@@ -233,32 +237,106 @@ public class Injector
         }
         if (beginGUI == null) { Console.WriteLine("WARNING: BeginGUI not found"); return; }
 
-        // 从 PunchLoader.dll Import FontRouter.Route(MonoBehaviour)
-        Cecil.MethodReference routeMethod = null;
+        // 从 PunchLoader.dll Import HookDispatcher.OnBeginGUI(MonoBehaviour)
+        Cecil.MethodReference onBeginGUI = null;
         if (File.Exists(PUNCHLOADER_DLL))
         {
             Cecil.AssemblyDefinition punchLoaderAsm = Cecil.AssemblyDefinition.ReadAssembly(
                 PUNCHLOADER_DLL, new Cecil.ReaderParameters { ReadSymbols = false });
             foreach (Cecil.TypeDefinition t in punchLoaderAsm.MainModule.Types)
             {
-                if (t.Name == "FontRouter")
+                if (t.FullName == "PunchLoader.HookDispatcher")
                 {
                     foreach (Cecil.MethodDefinition m in t.Methods)
-                        if (m.Name == "Route") { routeMethod = asm.MainModule.Import(m); break; }
+                        if (m.Name == "OnBeginGUI" && m.Parameters.Count == 1) { onBeginGUI = asm.MainModule.Import(m); break; }
                     break;
                 }
             }
         }
-        if (routeMethod == null)
+        if (onBeginGUI == null)
         {
-            Console.WriteLine("WARNING: FontRouter.Route not found in PunchLoader.dll");
+            Console.WriteLine("WARNING: HookDispatcher.OnBeginGUI not found in PunchLoader.dll");
             return;
         }
 
         CecilCil.ILProcessor il = beginGUI.Body.GetILProcessor();
         CecilCil.Instruction first = beginGUI.Body.Instructions[0];
         il.InsertBefore(first, il.Create(CecilCil.OpCodes.Ldarg_0));
-        il.InsertBefore(first, il.Create(CecilCil.OpCodes.Call, routeMethod));
-        Console.WriteLine("[Injector] Patched BeginGUI with FontRouter.Route hook");
+        il.InsertBefore(first, il.Create(CecilCil.OpCodes.Call, onBeginGUI));
+        Console.WriteLine("[Injector] Patched BeginGUI with HookDispatcher.OnBeginGUI hook");
+    }
+
+    // ====================================================================
+    // 钩子4: 替换 UnityEngine.GUILayout.Label 的两个原版调用签名。
+    // 这覆盖原版菜单的按钮、标题和配置页动态标签；每个字符串在真正绘制前才
+    // 进入 HookManager 的文本处理链，因此不会污染游戏的动作键或状态字段。
+    // ====================================================================
+    static void InjectGUILayoutLabelHooks(Cecil.AssemblyDefinition asm)
+    {
+        Cecil.MethodReference styledLabel = FindPunchLoaderMethod(
+            asm, "GUILayoutLabel", 3);
+        Cecil.MethodReference plainLabel = FindPunchLoaderMethod(
+            asm, "GUILayoutLabel", 2);
+        if (styledLabel == null || plainLabel == null)
+        {
+            Console.WriteLine("WARNING: HookDispatcher.GUILayoutLabel overloads not found in PunchLoader.dll");
+            return;
+        }
+
+        int patches = 0;
+        foreach (Cecil.TypeDefinition type in asm.MainModule.Types)
+        {
+            foreach (Cecil.MethodDefinition method in type.Methods)
+            {
+                if (!method.HasBody) continue;
+                CecilCil.Instruction instruction = method.Body.Instructions[0];
+                while (instruction != null)
+                {
+                    if ((instruction.OpCode == CecilCil.OpCodes.Call || instruction.OpCode == CecilCil.OpCodes.Callvirt) &&
+                        instruction.Operand is Cecil.MethodReference)
+                    {
+                        Cecil.MethodReference called = (Cecil.MethodReference)instruction.Operand;
+                        if (called.DeclaringType.FullName == "UnityEngine.GUILayout" &&
+                            called.Name == "Label" &&
+                            called.Parameters.Count == 3 &&
+                            called.Parameters[0].ParameterType.FullName == "System.String")
+                        {
+                            instruction.OpCode = CecilCil.OpCodes.Call;
+                            instruction.Operand = styledLabel;
+                            patches++;
+                        }
+                        else if (called.DeclaringType.FullName == "UnityEngine.GUILayout" &&
+                            called.Name == "Label" &&
+                            called.Parameters.Count == 2 &&
+                            called.Parameters[0].ParameterType.FullName == "System.String")
+                        {
+                            instruction.OpCode = CecilCil.OpCodes.Call;
+                            instruction.Operand = plainLabel;
+                            patches++;
+                        }
+                    }
+                    instruction = instruction.Next;
+                }
+            }
+        }
+        Console.WriteLine("[Injector] Patched " + patches + " GUILayout.Label call(s)");
+    }
+
+    static Cecil.MethodReference FindPunchLoaderMethod(Cecil.AssemblyDefinition targetAsm,
+        string name, int parameterCount)
+    {
+        if (!File.Exists(PUNCHLOADER_DLL)) return null;
+        Cecil.AssemblyDefinition loaderAsm = Cecil.AssemblyDefinition.ReadAssembly(
+            PUNCHLOADER_DLL, new Cecil.ReaderParameters { ReadSymbols = false });
+        foreach (Cecil.TypeDefinition type in loaderAsm.MainModule.Types)
+        {
+            if (type.FullName != "PunchLoader.HookDispatcher") continue;
+            foreach (Cecil.MethodDefinition method in type.Methods)
+            {
+                if (method.Name == name && method.Parameters.Count == parameterCount)
+                    return targetAsm.MainModule.Import(method);
+            }
+        }
+        return null;
     }
 }

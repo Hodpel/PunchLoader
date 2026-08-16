@@ -1,0 +1,8 @@
+{
+  "id": "ChineseLocalization",
+  "name": "简体中文",
+  "version": "1.0.0",
+  "author": "PunchLoader Contributors",
+  "entryType": "ChineseLocalizationPlugin",
+  "priority": 100
+}

@@ -436,169 +436,118 @@ namespace PunchLoader
     }
 
     // ====================================================================
-    // MenuLocalizer: 中文→英文 反向翻译器
-    // 由 Injector.exe IL 注入到 GUILayoutMenuScript.CheckConfirm() 中
-    // 在 DoAction(entry) 之前调用 TranslateEntry(entry)
-    // 把 menuEntries 中已被 FontRouter 翻译成中文的文本反转回英文
-    // 这样 DoAction("quit") / DoAction("play") 的 switch 才能正常工作
+    // HookDispatcher / HookManager: 注入点与 mod 之间的通用运行时桥接
+    // Injector 只引用 HookDispatcher；具体业务（汉化、菜单扩展等）全部由 mod 注册。
+    // 每个回调独立捕获异常，单个 mod 出错不会阻断原版 UI 的绘制或确认操作。
     // ====================================================================
-    public static class MenuLocalizer
-    {
-        // 中文 → 英文 反向映射字典（由 Register() 从英→中字典翻转生成）
-        private static Dictionary<string, string> _reverse = new Dictionary<string, string>();
+    public delegate void BeginGUIHandler(MonoBehaviour menu);
+    public delegate string PreDoActionHandler(string action);
+    public delegate string TextTransformHandler(string text);
 
-        /// <summary>
-        /// 将中文菜单项翻译回英文。如果不在字典中则原样返回。
-        /// 由 Cecil IL patch 在 CheckConfirm → DoAction 前调用。
-        /// </summary>
-        public static string TranslateEntry(string entry)
+    public static class HookManager
+    {
+        private static List<BeginGUIHandler> _beginGUIHandlers = new List<BeginGUIHandler>();
+        private static List<PreDoActionHandler> _preDoActionHandlers = new List<PreDoActionHandler>();
+        private static List<TextTransformHandler> _textTransformHandlers = new List<TextTransformHandler>();
+
+        public static void Register(BeginGUIHandler handler)
         {
-            if (entry == null) return null;
-            string english;
-            if (_reverse.TryGetValue(entry, out english))
-                return english;
-            return entry; // 无需翻译（如 "MODS"、"back" 等保持英文）
+            if (handler != null && !_beginGUIHandlers.Contains(handler))
+                _beginGUIHandlers.Add(handler);
         }
 
-        /// <summary>
-        /// 注册翻译字典。接受英→中映射，内部翻转生成中→英反向映射。
-        /// 由 ChineseLoc.cs 的 Awake() 调用。
-        /// 传入示例: {"play"→"开始游戏", "quit"→"退出"} → 反向: {"开始游戏"→"play", "退出"→"quit"}
-        /// </summary>
-        public static void Register(Dictionary<string, string> englishToChinese)
+        public static void Register(PreDoActionHandler handler)
         {
-            if (englishToChinese == null) return;
-            Dictionary<string, string>.Enumerator en = englishToChinese.GetEnumerator();
-            while (en.MoveNext())
+            if (handler != null && !_preDoActionHandlers.Contains(handler))
+                _preDoActionHandlers.Add(handler);
+        }
+
+        public static void Register(TextTransformHandler handler)
+        {
+            if (handler != null && !_textTransformHandlers.Contains(handler))
+                _textTransformHandlers.Add(handler);
+        }
+
+        public static void Unregister(BeginGUIHandler handler)
+        {
+            if (handler != null) _beginGUIHandlers.Remove(handler);
+        }
+
+        public static void Unregister(PreDoActionHandler handler)
+        {
+            if (handler != null) _preDoActionHandlers.Remove(handler);
+        }
+
+        public static void Unregister(TextTransformHandler handler)
+        {
+            if (handler != null) _textTransformHandlers.Remove(handler);
+        }
+
+        public static void Dispatch(MonoBehaviour menu)
+        {
+            BeginGUIHandler[] handlers = _beginGUIHandlers.ToArray();
+            for (int i = 0; i < handlers.Length; i++)
             {
-                KeyValuePair<string, string> kv = en.Current;
-                // 如果中文值相同（多个英文映射到同一中文），保留第一个映射的英文
-                if (!_reverse.ContainsKey(kv.Value))
-                    _reverse[kv.Value] = kv.Key;
+                try { handlers[i](menu); }
+                catch (Exception ex) { Debug.LogError("[PunchLoader] BeginGUI hook failed: " + ex); }
             }
+        }
+
+        public static string Dispatch(string action)
+        {
+            string current = action;
+            PreDoActionHandler[] handlers = _preDoActionHandlers.ToArray();
+            for (int i = 0; i < handlers.Length; i++)
+            {
+                try
+                {
+                    string replacement = handlers[i](current);
+                    if (replacement != null) current = replacement;
+                }
+                catch (Exception ex) { Debug.LogError("[PunchLoader] PreDoAction hook failed: " + ex); }
+            }
+            return current;
+        }
+
+        public static string DispatchText(string text)
+        {
+            string current = text;
+            TextTransformHandler[] handlers = _textTransformHandlers.ToArray();
+            for (int i = 0; i < handlers.Length; i++)
+            {
+                try
+                {
+                    string replacement = handlers[i](current);
+                    if (replacement != null) current = replacement;
+                }
+                catch (Exception ex) { Debug.LogError("[PunchLoader] Text hook failed: " + ex); }
+            }
+            return current;
         }
     }
 
-    // ====================================================================
-    // FontRouter: 零闪烁字体路由引擎
-    // 由 Injector.exe IL 注入到 GUILayoutMenuScript.BeginGUI() 顶部
-    // 每帧 OnGUI 渲染前执行：
-    //   1. 遍历 menuEntries[] + labelEntries[] → 用 Translations 字典英→中替换
-    //   2. 遍历 GUIDataScript 上所有 GUIStyle → 替换字体为 AtlasFont
-    // 因为在任何 GUILayout.Label 之前完成，所以用户绝看不到英文闪现
-    // ====================================================================
-    public static class FontRouter
+    public static class HookDispatcher
     {
-        // 组合字体图集（ACK + CJK 在同一张纹理上）
-        public static Font AtlasFont;
-        // 英→中 翻译字典
-        public static Dictionary<string, string> Translations;
-        // 是否已就绪（ChineseLoc 加载完成后设为 true）
-        public static bool Ready;
-
-        /// <summary>
-        /// 每帧 BeginGUI 前调用。
-        /// 翻译当前菜单的所有文本 + 替换所有 GUIStyle.font 为组合图集字体。
-        /// menu 参数是当前 GUILayoutMenuScript 实例（或其子类）。
-        /// </summary>
-        public static void Route(MonoBehaviour menu)
+        public static void OnBeginGUI(MonoBehaviour menu)
         {
-            if (!Ready || Translations == null || menu == null) return;
+            HookManager.Dispatch(menu);
+        }
 
-            // --- 反射获取字段（沿继承链向上查找） ---
-            Type scan = menu.GetType();
-            FieldInfo meField = null;   // menuEntries
-            FieldInfo leField = null;   // labelEntries
-            FieldInfo gdField = null;   // GUIData
+        public static string PreDoAction(string action)
+        {
+            return HookManager.Dispatch(action);
+        }
 
-            while (scan != null && scan != typeof(MonoBehaviour))
-            {
-                if (meField == null)
-                    meField = scan.GetField("menuEntries", BindingFlags.NonPublic | BindingFlags.Instance);
-                if (leField == null)
-                    leField = scan.GetField("labelEntries", BindingFlags.NonPublic | BindingFlags.Instance);
-                if (gdField == null)
-                    gdField = scan.GetField("GUIData", BindingFlags.Public | BindingFlags.Instance);
-                if (meField != null && leField != null && gdField != null) break;
-                scan = scan.BaseType;
-            }
+        // 这两个包装器会由 Injector 替换原版 GUILayout.Label 调用。
+        // 文本保持为原始动作键，渲染时才转换，避免修改 menuEntries 后再反向恢复。
+        public static void GUILayoutLabel(string text, GUIStyle style, GUILayoutOption[] options)
+        {
+            GUILayout.Label(HookManager.DispatchText(text), style, options);
+        }
 
-            // --- 翻译 menuEntries（按钮文本） ---
-            if (meField != null)
-            {
-                string[] arr = (string[])meField.GetValue(menu);
-                if (arr != null)
-                {
-                    bool dirty = false;
-                    for (int i = 0; i < arr.Length; i++)
-                    {
-                        if (arr[i] == null) continue;
-                        string v;
-                        if (Translations.TryGetValue(arr[i], out v) && v != arr[i])
-                        {
-                            arr[i] = v;
-                            dirty = true;
-                        }
-                    }
-                    if (dirty) meField.SetValue(menu, arr);
-                }
-            }
-
-            // --- 翻译 labelEntries（标题文本，如 "LOADED MODS"） ---
-            if (leField != null)
-            {
-                string[] arr = (string[])leField.GetValue(menu);
-                if (arr != null)
-                {
-                    bool dirty = false;
-                    for (int i = 0; i < arr.Length; i++)
-                    {
-                        if (arr[i] == null) continue;
-                        string v;
-                        if (Translations.TryGetValue(arr[i], out v) && v != arr[i])
-                        {
-                            arr[i] = v;
-                            dirty = true;
-                        }
-                    }
-                    if (dirty) leField.SetValue(menu, arr);
-                }
-            }
-
-            // --- 替换 GUIStyle 字体 ---
-            // GUIDataScript 上有 8 个 style: buttonStyle, fakeButtonStyle, smallButtonStyle,
-            // fakeSmallButtonStyle, smallLabelStyle, sliderStyle, thumbStyle, announcementStyle
-            // 前 5 个是菜单渲染用的，后 3 个不常出现
-            if (gdField != null && AtlasFont != null)
-            {
-                object gd = gdField.GetValue(menu);
-                if (gd != null)
-                {
-                    Type gdType = gd.GetType();
-                    // 需要替换字体的 style 名称 + 对应的 fixedHeight
-                    // button/fakeButton = 44px, smallButton/fakeSmallButton/smallLabel = 31px
-                    string[] names = new string[] {
-                        "buttonStyle", "fakeButtonStyle", "smallButtonStyle",
-                        "fakeSmallButtonStyle", "smallLabelStyle"
-                    };
-                    int[] heights = new int[] { 44, 44, 31, 31, 31 };
-
-                    for (int i = 0; i < names.Length; i++)
-                    {
-                        FieldInfo sf = gdType.GetField(names[i]);
-                        if (sf == null) continue;
-                        GUIStyle s = sf.GetValue(gd) as GUIStyle;
-                        if (s == null) continue;
-
-                        // 只替换一次，避免重复
-                        if (s.font != AtlasFont)
-                        {
-                            s.font = AtlasFont;
-                            s.fixedHeight = (float)heights[i];
-                        }
-                    }
-                }
-            }
+        public static void GUILayoutLabel(string text, GUILayoutOption[] options)
+        {
+            GUILayout.Label(HookManager.DispatchText(text), options);
         }
     }
 
