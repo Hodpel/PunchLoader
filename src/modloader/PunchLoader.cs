@@ -6,14 +6,14 @@ using System.Text;
 using UnityEngine;
 
 // ============================================================================
-// MBPModLoader — Megabyte Punch mod 框架
-// 编译: csc @build_mbp.rsp → MBPModLoader.dll
-// 放置: MegabytePunch_Data\Managed\MBPModLoader.dll
+// PunchLoader — Megabyte Punch mod 框架
+// 编译: csc @build_loader.rsp → PunchLoader.dll
+// 放置: MegabytePunch_Data\Managed\PunchLoader.dll
 // 入口: Bootstrap.Init() 由 Injector.exe IL 注入到 MenuScript.Start() 中调用
 // 平台: .NET 2.0 (Mono 2.x) + Unity 4.2.2f1
 // 注意: 不使用 var / LINQ / lambda / System.Core（.NET 2.0 不支持）
 // ============================================================================
-namespace MBPModLoader
+namespace PunchLoader
 {
     // ====================================================================
     // ModInfo: 单个 mod 的运行时信息
@@ -134,7 +134,7 @@ namespace MBPModLoader
         {
             try
             {
-                Debug.Log("[MBPModLoader] Bootstrap.Init() called");
+                Debug.Log("[PunchLoader] Bootstrap.Init() called");
 
                 // 创建永不销毁的 GameObject，作为 mod 系统的根
                 GameObject go = new GameObject("ModLoader");
@@ -143,11 +143,11 @@ namespace MBPModLoader
                 go.AddComponent<ModLoaderBehaviour>();
                 // ModListMenu: 监控主菜单，注入 "mods" 按钮
                 go.AddComponent<ModListMenu>();
-                Debug.Log("[MBPModLoader] ModLoader GameObject created");
+                Debug.Log("[PunchLoader] ModLoader GameObject created");
             }
             catch (Exception ex)
             {
-                Debug.LogError("[MBPModLoader] Bootstrap error: " + ex);
+                Debug.LogError("[PunchLoader] Bootstrap error: " + ex);
             }
         }
     }
@@ -190,17 +190,17 @@ namespace MBPModLoader
             // 路径: {游戏目录}/MegabytePunch_Data/Mods/
             string modsPath = Path.Combine(Application.dataPath, "Mods");
             modsPath = Path.GetFullPath(modsPath);
-            Debug.Log("[MBPModLoader] Scanning: " + modsPath);
+            Debug.Log("[PunchLoader] Scanning: " + modsPath);
 
             if (!Directory.Exists(modsPath))
             {
                 Directory.CreateDirectory(modsPath);
-                Debug.Log("[MBPModLoader] Created Mods/ folder");
+                Debug.Log("[PunchLoader] Created Mods/ folder");
                 return;
             }
 
             string[] subDirs = Directory.GetDirectories(modsPath);
-            Debug.Log("[MBPModLoader] Found " + subDirs.Length + " subdirectories");
+            Debug.Log("[PunchLoader] Found " + subDirs.Length + " subdirectories");
 
             // 阶段1: 扫描所有子目录，收集 ModInfo
             foreach (string dir in subDirs)
@@ -208,7 +208,7 @@ namespace MBPModLoader
                 string manifest = Path.Combine(dir, "plugin.json");
                 if (!File.Exists(manifest)) continue;
                 try { LoadMod(dir, manifest); }
-                catch (Exception ex) { Debug.LogError("[MBPModLoader] Failed: " + dir + " - " + ex); }
+                catch (Exception ex) { Debug.LogError("[PunchLoader] Failed: " + dir + " - " + ex); }
             }
 
             // 按 Priority 升序排列
@@ -221,11 +221,11 @@ namespace MBPModLoader
                 {
                     mod.Plugin.OnLoad();
                     mod.Loaded = true;
-                    Debug.Log("[MBPModLoader] Loaded: " + mod.Name + " v" + mod.Version);
+                    Debug.Log("[PunchLoader] Loaded: " + mod.Name + " v" + mod.Version);
                 }
                 catch (Exception ex)
                 {
-                    Debug.LogError("[MBPModLoader] OnLoad failed: " + mod.Name + " - " + ex);
+                    Debug.LogError("[PunchLoader] OnLoad failed: " + mod.Name + " - " + ex);
                 }
             }
         }
@@ -240,7 +240,7 @@ namespace MBPModLoader
             string entryType;
             if (!data.TryGetValue("entryType", out entryType) || string.IsNullOrEmpty(entryType))
             {
-                Debug.LogWarning("[MBPModLoader] Missing entryType in " + manifestPath);
+                Debug.LogWarning("[PunchLoader] Missing entryType in " + manifestPath);
                 return;
             }
 
@@ -267,22 +267,22 @@ namespace MBPModLoader
                         info.Plugin = obj as IModPlugin;
                         if (info.Plugin == null)
                         {
-                            Debug.LogWarning("[MBPModLoader] Entry does not implement IModPlugin: " + entryType);
+                            Debug.LogWarning("[PunchLoader] Entry does not implement IModPlugin: " + entryType);
                             continue;
                         }
                         info.Assembly = asm;
                         _mods.Add(info);
-                        Debug.Log("[MBPModLoader] Discovered: " + (info.Name ?? info.Id));
+                        Debug.Log("[PunchLoader] Discovered: " + (info.Name ?? info.Id));
                         return;
                     }
                 }
                 catch (Exception ex)
                 {
-                    Debug.LogWarning("[MBPModLoader] DLL err: " + dll + " - " + ex.Message);
+                    Debug.LogWarning("[PunchLoader] DLL err: " + dll + " - " + ex.Message);
                 }
             }
 
-            Debug.LogWarning("[MBPModLoader] Type " + entryType + " not found in " + dir);
+            Debug.LogWarning("[PunchLoader] Type " + entryType + " not found in " + dir);
         }
     }
 

@@ -1,7 +1,7 @@
 /target:library
-/out:build\MBPModLoader.dll
+/out:build\PunchLoader.dll
 /reference:deps\Unity\UnityEngine.dll
 /reference:deps\Game\Assembly-CSharp.dll
 /reference:deps\Game\mscorlib.dll
 /nostdlib
-src\modloader\MBPModLoader.cs
+src\modloader\PunchLoader.cs

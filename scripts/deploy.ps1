@@ -1,6 +1,6 @@
 # 部署到测试游戏目录
 # 用法: .\deploy.ps1 -GameDir "F:\Codex\MBP_PROJ\Game"
-# 复制 MBPModLoader.dll + Injector.exe 到游戏 Managed 目录
+# 复制 PunchLoader.dll + Injector.exe 到游戏 Managed 目录
 
 param(
     [string]$GameDir = "F:\Codex\MBP_PROJ\ModdedGame"
@@ -14,8 +14,8 @@ if (-not (Test-Path $managed)) {
     exit 1
 }
 
-Copy-Item "$root\build\MBPModLoader.dll" "$managed\"
-Write-Host "Deployed MBPModLoader.dll"
+Copy-Item "$root\build\PunchLoader.dll" "$managed\"
+Write-Host "Deployed PunchLoader.dll"
 
 Copy-Item "$root\build\Injector.exe" "$managed\"
 Copy-Item "$root\deps\Cecil\Mono.Cecil.dll" "$managed\"

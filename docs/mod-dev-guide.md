@@ -33,7 +33,7 @@
 
 ```csharp
 using System;
-using MBPModLoader;
+using PunchLoader;
 
 namespace YourMod
 {
@@ -82,7 +82,7 @@ namespace YourMod
 /target:library
 /out:YourMod.dll
 /reference:"{游戏目录}/MegabytePunch_Data/Managed/UnityEngine.dll"
-/reference:"{游戏目录}/MegabytePunch_Data/Managed/MBPModLoader.dll"
+/reference:"{游戏目录}/MegabytePunch_Data/Managed/PunchLoader.dll"
 /reference:"{游戏目录}/MegabytePunch_Data/Managed/Assembly-CSharp.dll"
 /nostdlib
 YourMod.cs

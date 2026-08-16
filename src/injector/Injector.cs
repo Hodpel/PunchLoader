@@ -20,7 +20,7 @@ public class Injector
     const string GAME_MANAGED = "F:/Codex/MBP_PROJ/ModdedGame/MegabytePunch_Data/Managed";
     const string TARGET_DLL = GAME_MANAGED + "/Assembly-CSharp.dll";
     const string BACKUP_DLL = GAME_MANAGED + "/Assembly-CSharp.dll.orig";
-    const string MBP_MODLOADER_DLL = GAME_MANAGED + "/MBPModLoader.dll";
+    const string PUNCHLOADER_DLL = GAME_MANAGED + "/PunchLoader.dll";
 
     static int Main(string[] args)
     {
@@ -81,23 +81,23 @@ public class Injector
 
             // === 步骤3: 注入引导代码到 MenuScript.Start() 顶部 ===
             // 等价于 C#:
-            //   Debug.Log("[MBPModLoader] booting...");
-            //   Assembly mbpAsm = Assembly.LoadFrom("Managed/MBPModLoader.dll");
-            //   Type t = mbpAsm.GetType("MBPModLoader.Bootstrap");
+            //   Debug.Log("[PunchLoader] booting...");
+            //   Assembly punchLoaderAsm = Assembly.LoadFrom("Managed/PunchLoader.dll");
+            //   Type t = punchLoaderAsm.GetType("PunchLoader.Bootstrap");
             //   MethodInfo m = t.GetMethod("Init");
             //   m.Invoke(null, null);
 
-            il.InsertBefore(first, il.Create(CecilCil.OpCodes.Ldstr, "[MBPModLoader] booting..."));
+            il.InsertBefore(first, il.Create(CecilCil.OpCodes.Ldstr, "[PunchLoader] booting..."));
             il.InsertBefore(first, il.Create(CecilCil.OpCodes.Call, logObjRef));
 
-            // Assembly mbpAsm = Assembly.LoadFrom("MBPModLoader.dll")
-            il.InsertBefore(first, il.Create(CecilCil.OpCodes.Ldstr, md + "/MBPModLoader.dll"));
+            // Assembly punchLoaderAsm = Assembly.LoadFrom("PunchLoader.dll")
+            il.InsertBefore(first, il.Create(CecilCil.OpCodes.Ldstr, md + "/PunchLoader.dll"));
             il.InsertBefore(first, il.Create(CecilCil.OpCodes.Call, asmLoadFrom));
             il.InsertBefore(first, il.Create(CecilCil.OpCodes.Stloc, asmVar));
 
-            // Type t = mbpAsm.GetType("MBPModLoader.Bootstrap")
+            // Type t = punchLoaderAsm.GetType("PunchLoader.Bootstrap")
             il.InsertBefore(first, il.Create(CecilCil.OpCodes.Ldloc, asmVar));
-            il.InsertBefore(first, il.Create(CecilCil.OpCodes.Ldstr, "MBPModLoader.Bootstrap"));
+            il.InsertBefore(first, il.Create(CecilCil.OpCodes.Ldstr, "PunchLoader.Bootstrap"));
             il.InsertBefore(first, il.Create(CecilCil.OpCodes.Callvirt, asmGetType));
             il.InsertBefore(first, il.Create(CecilCil.OpCodes.Stloc, typeVar));
 
@@ -152,13 +152,13 @@ public class Injector
 
         Console.WriteLine("[Injector] Found GUILayoutMenuScript.CheckConfirm, patching...");
 
-        // 从 MBPModLoader.dll 中 Import MenuLocalizer.TranslateEntry(string)
+        // 从 PunchLoader.dll 中 Import MenuLocalizer.TranslateEntry(string)
         Cecil.MethodReference translateEntry = null;
-        if (File.Exists(MBP_MODLOADER_DLL))
+        if (File.Exists(PUNCHLOADER_DLL))
         {
-            Cecil.AssemblyDefinition mbpAsm = Cecil.AssemblyDefinition.ReadAssembly(
-                MBP_MODLOADER_DLL, new Cecil.ReaderParameters { ReadSymbols = false });
-            foreach (Cecil.TypeDefinition t in mbpAsm.MainModule.Types)
+            Cecil.AssemblyDefinition punchLoaderAsm = Cecil.AssemblyDefinition.ReadAssembly(
+                PUNCHLOADER_DLL, new Cecil.ReaderParameters { ReadSymbols = false });
+            foreach (Cecil.TypeDefinition t in punchLoaderAsm.MainModule.Types)
             {
                 if (t.Name == "MenuLocalizer")
                 {
@@ -176,7 +176,7 @@ public class Injector
         }
         if (translateEntry == null)
         {
-            Console.WriteLine("WARNING: MenuLocalizer.TranslateEntry not found in MBPModLoader.dll");
+            Console.WriteLine("WARNING: MenuLocalizer.TranslateEntry not found in PunchLoader.dll");
             return;
         }
 
@@ -233,13 +233,13 @@ public class Injector
         }
         if (beginGUI == null) { Console.WriteLine("WARNING: BeginGUI not found"); return; }
 
-        // 从 MBPModLoader.dll Import FontRouter.Route(MonoBehaviour)
+        // 从 PunchLoader.dll Import FontRouter.Route(MonoBehaviour)
         Cecil.MethodReference routeMethod = null;
-        if (File.Exists(MBP_MODLOADER_DLL))
+        if (File.Exists(PUNCHLOADER_DLL))
         {
-            Cecil.AssemblyDefinition mbpAsm = Cecil.AssemblyDefinition.ReadAssembly(
-                MBP_MODLOADER_DLL, new Cecil.ReaderParameters { ReadSymbols = false });
-            foreach (Cecil.TypeDefinition t in mbpAsm.MainModule.Types)
+            Cecil.AssemblyDefinition punchLoaderAsm = Cecil.AssemblyDefinition.ReadAssembly(
+                PUNCHLOADER_DLL, new Cecil.ReaderParameters { ReadSymbols = false });
+            foreach (Cecil.TypeDefinition t in punchLoaderAsm.MainModule.Types)
             {
                 if (t.Name == "FontRouter")
                 {
@@ -251,7 +251,7 @@ public class Injector
         }
         if (routeMethod == null)
         {
-            Console.WriteLine("WARNING: FontRouter.Route not found in MBPModLoader.dll");
+            Console.WriteLine("WARNING: FontRouter.Route not found in PunchLoader.dll");
             return;
         }
 

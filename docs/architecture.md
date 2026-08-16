@@ -10,7 +10,7 @@
 │       call HookDispatcher::Xxx               │
 │ 不依赖: mod 代码、翻译字典、字体               │
 ├──────────────────────────────────────────────┤
-│           PunchModLoader.dll (运行时)          │
+│           PunchLoader.dll (运行时)          │
 │ 框架层 — 提供:                                │
 │  - HookDispatcher: IL 层固定桩（被 Injector）  │
 │  - HookManager: 运行时回调注册表               │
