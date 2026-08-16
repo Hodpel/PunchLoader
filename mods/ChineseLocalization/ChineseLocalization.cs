@@ -14,6 +14,11 @@ public class ChineseLocalizationPlugin : IModPlugin
     private static Dictionary<string, string> _translations;
     private static Font _font;
     private static Font _smallFont;
+    private static Font _dialogueFont;
+    private static Font _dialogueRuntimeFont;
+    private static ChineseDialogueTextWatcher _dialogueTextWatcher;
+    private static bool _dialogueDataPatched;
+    private static bool _dialogueFontTraceLogged;
     private static Dictionary<GUIStyle, GUIStyle> _layoutStyles;
     private static Dictionary<GUIStyle, GUIStyle> _renderStyles;
     // InputConfigMenuScript builds a 700px-wide local GUILayout area and gives
@@ -27,6 +32,14 @@ public class ChineseLocalizationPlugin : IModPlugin
     // that growth so its visual centre remains on the original ACKNOWTT centre.
     private const float LocalizedTextYOffset = -24f;
     private const float SmallLocalizedTextYOffset = -17f;
+    // First TextMesh proof: keep the scope intentionally to one verified line.
+    // Newlines are normalized because the game serializes TextMesh text as CRLF.
+    private const string DialogueProofSource = "You have our eternal\ngratitude for returning\nthe heartcore and \nrestoring peace!";
+    private const string DialogueProofTranslation = "你带回了心核,\n恢复了和平,\n我们永远感激不尽!";
+    private const string DialogueFollowupSource1 = "The doors to the different\nlevels are still open!";
+    private const string DialogueFollowupTranslation1 = "各关卡的大门仍然敞开!";
+    private const string DialogueFollowupSource2 = "It is up to you to return\nand search for hidden \ncolors, special parts and\nother secrets.";
+    private const string DialogueFollowupTranslation2 = "你可以自行返回,\n去寻找隐藏的色彩、\n特殊零件和其他秘密.";
 
     public string GetId() { return "ChineseLocalization"; }
     public string GetName() { return "简体中文"; }
@@ -45,15 +58,21 @@ public class ChineseLocalizationPlugin : IModPlugin
                 "PunchLoader ACKNOWTT + BoutiqueBitmap");
             Font smallFont = LoadFont(modDirectory, "font_atlas_small.png", "glyphs_small.tsv",
                 "PunchLoader ACKNOWTT Small + BoutiqueBitmap");
-            if (font == null || smallFont == null) return;
+            Font dialogueFont = LoadFont(modDirectory, "dialogue_font_atlas.png", "dialogue_glyphs.tsv",
+                "PunchLoader visitor2 + BoutiqueBitmap Bold");
+            if (font == null || smallFont == null || dialogueFont == null) return;
 
             _translations = translations;
             _font = font;
             _smallFont = smallFont;
+            _dialogueFont = dialogueFont;
             _layoutStyles = new Dictionary<GUIStyle, GUIStyle>();
             _renderStyles = new Dictionary<GUIStyle, GUIStyle>();
             HookManager.Register(new TextTransformHandler(Translate));
             HookManager.Register(new GUILayoutLabelHandler(DrawLocalizedLabel));
+            HookManager.Register(new TextMeshTextHandler(DrawLocalizedTextMesh));
+            CreateDialogueTextWatcher();
+            PatchDialogueData();
             _registered = true;
             Debug.Log("[ChineseLocalization] Ready: " + _translations.Count + " translations");
         }
@@ -68,8 +87,21 @@ public class ChineseLocalizationPlugin : IModPlugin
         if (!_registered) return;
         HookManager.Unregister(new TextTransformHandler(Translate));
         HookManager.Unregister(new GUILayoutLabelHandler(DrawLocalizedLabel));
+        HookManager.Unregister(new TextMeshTextHandler(DrawLocalizedTextMesh));
+        if (_dialogueTextWatcher != null)
+        {
+            UnityEngine.Object.Destroy(_dialogueTextWatcher.gameObject);
+            _dialogueTextWatcher = null;
+        if (_dialogueRuntimeFont != null)
+        {
+            UnityEngine.Object.Destroy(_dialogueRuntimeFont);
+            _dialogueRuntimeFont = null;
+        }
+        }
         if (_layoutStyles != null) _layoutStyles.Clear();
         if (_renderStyles != null) _renderStyles.Clear();
+        _dialogueDataPatched = false;
+        _dialogueFontTraceLogged = false;
         _registered = false;
     }
 
@@ -151,26 +183,40 @@ public class ChineseLocalizationPlugin : IModPlugin
                 if (line[0] == '#') continue;
 
                 string[] parts = line.Split('\t');
-                if (parts.Length != 10) throw new Exception("Invalid glyph row");
-                int x = ParseInt(parts[1]);
-                int y = ParseInt(parts[2]);
-                int width = ParseInt(parts[3]);
-                int height = ParseInt(parts[4]);
                 CharacterInfo info = new CharacterInfo();
                 info.index = ParseInt(parts[0]);
-                info.uv.x = (float)x / textureWidth;
-                // Unity's CharacterInfo uses the rectangle direction to choose glyph
-                // orientation.  CJK rows were emitted top-to-bottom by Pillow, so a
-                // positive UV height is required; the old negative height mirrored all
-                // Chinese glyphs vertically at runtime.
-                info.uv.y = 1f - (float)(y + height) / textureHeight;
-                info.uv.width = (float)width / textureWidth;
-                info.uv.height = (float)height / textureHeight;
-                info.vert.x = ParseFloat(parts[5]);
-                info.vert.y = ParseFloat(parts[6]);
-                info.vert.width = ParseFloat(parts[7]);
-                info.vert.height = ParseFloat(parts[8]);
-                info.width = ParseFloat(parts[9]);
+                if (parts.Length == 11 && parts[1] == "uv")
+                {
+                    // visitor2 ASCII is copied without repacking. Preserve its
+                    // signed UV rectangles and original metrics exactly.
+                    info.uv.x = ParseFloat(parts[2]);
+                    info.uv.y = ParseFloat(parts[3]);
+                    info.uv.width = ParseFloat(parts[4]);
+                    info.uv.height = ParseFloat(parts[5]);
+                    info.vert.x = ParseFloat(parts[6]);
+                    info.vert.y = ParseFloat(parts[7]);
+                    info.vert.width = ParseFloat(parts[8]);
+                    info.vert.height = ParseFloat(parts[9]);
+                    info.width = ParseFloat(parts[10]);
+                }
+                else
+                {
+                    if (parts.Length != 10) throw new Exception("Invalid glyph row");
+                    int x = ParseInt(parts[1]);
+                    int y = ParseInt(parts[2]);
+                    int width = ParseInt(parts[3]);
+                    int height = ParseInt(parts[4]);
+                    info.uv.x = (float)x / textureWidth;
+                    // CJK rows are written top-to-bottom in the PNG.
+                    info.uv.y = 1f - (float)(y + height) / textureHeight;
+                    info.uv.width = (float)width / textureWidth;
+                    info.uv.height = (float)height / textureHeight;
+                    info.vert.x = ParseFloat(parts[5]);
+                    info.vert.y = ParseFloat(parts[6]);
+                    info.vert.width = ParseFloat(parts[7]);
+                    info.vert.height = ParseFloat(parts[8]);
+                    info.width = ParseFloat(parts[9]);
+                }
                 characters.Add(info);
             }
         }
@@ -288,6 +334,150 @@ public class ChineseLocalizationPlugin : IModPlugin
         return true;
     }
 
+    // This handler runs inside HookDispatcher.SetTextMeshText before Unity's
+    // original TextMesh setter. No original English is assigned when the proof
+    // line is written through a managed setter.
+    private static bool DrawLocalizedTextMesh(TextMesh textMesh, string originalText)
+    {
+        return ApplyLocalizedTextMesh(textMesh, originalText);
+    }
+
+    // Dialogue prefabs can deserialize TextMesh.m_Text directly, bypassing
+    // TextMesh.set_text. Scan live TextMeshes so that path is translated too.
+    private static void CreateDialogueTextWatcher()
+    {
+        GameObject host = new GameObject("PunchLoader.ChineseLocalization.DialogueWatcher");
+        UnityEngine.Object.DontDestroyOnLoad(host);
+        _dialogueTextWatcher = (ChineseDialogueTextWatcher)host.AddComponent(typeof(ChineseDialogueTextWatcher));
+    }
+
+    private static bool ApplyLocalizedTextMesh(TextMesh textMesh, string originalText)
+    {
+        if (textMesh == null || _dialogueFont == null) return false;
+
+        string translated;
+        if (!TryTranslateDialogueProof(originalText, out translated)) return false;
+
+        ApplyDialogueFont(textMesh);
+        textMesh.text = translated;
+        Debug.Log("[ChineseLocalization] Replaced dialogue proof TextMesh: " + textMesh.gameObject.name);
+        return true;
+    }
+
+    private static void ApplyDialogueFont(TextMesh textMesh)
+    {
+        if (textMesh == null || _dialogueFont == null) return;
+        if (_dialogueRuntimeFont == null)
+        {
+            // new Font(name) creates a dynamic font. TextMesh does not consume its
+            // injected CharacterInfo table reliably in this Unity version. Clone
+            // the original static visitor2 instance instead, then replace only its
+            // material and character table with the mixed atlas.
+            _dialogueRuntimeFont = UnityEngine.Object.Instantiate(textMesh.font) as Font;
+            if (_dialogueRuntimeFont == null) return;
+            _dialogueRuntimeFont.name = "PunchLoader visitor2 + BoutiqueBitmap Bold Runtime";
+            typeof(Font).GetProperty("material").SetValue(_dialogueRuntimeFont,
+                _dialogueFont.material, null);
+            object characters = typeof(Font).GetProperty("characterInfo").GetValue(_dialogueFont, null);
+            typeof(Font).GetProperty("characterInfo").SetValue(_dialogueRuntimeFont, characters, null);
+        }
+        textMesh.font = _dialogueRuntimeFont;
+        textMesh.fontSize = 50;
+        if (textMesh.renderer != null) textMesh.renderer.material = _dialogueRuntimeFont.material;        if (!_dialogueFontTraceLogged)
+        {
+            CharacterInfo[] infos = (CharacterInfo[])typeof(Font).GetProperty("characterInfo").GetValue(_dialogueRuntimeFont, null);
+            bool hasChineseGlyph = false;
+            for (int i = 0; i < infos.Length; i++)
+                if (infos[i].index == 20320) { hasChineseGlyph = true; break; }
+            _dialogueFontTraceLogged = true;
+            Debug.Log("[ChineseLocalization] Dialogue font trace: object=" + textMesh.gameObject.name +
+                ", assigned=" + textMesh.font.name + ", meshFontSize=" + textMesh.fontSize +
+                ", glyphs=" + infos.Length + ", hasU4F60=" + hasChineseGlyph +
+                ", text=" + textMesh.text);
+        }
+    }    public static void TickDialogueTextWatcher()
+    {
+        PatchDialogueData();
+        UnityEngine.Object[] objects = Resources.FindObjectsOfTypeAll(typeof(TextMesh));
+        for (int i = 0; i < objects.Length; i++)
+        {
+            TextMesh textMesh = objects[i] as TextMesh;
+            if (textMesh == null) continue;
+            if (ContainsChinese(textMesh.text)) ApplyDialogueFont(textMesh);
+            else ApplyLocalizedTextMesh(textMesh, textMesh.text);
+        }
+    }
+    // TextBoxScript reveals dialogue character by character. Replacing its source
+    // data before StartFirstLine makes the typewriter reveal Chinese from its first
+    // glyph rather than waiting until the English line has completed.
+    private static void PatchDialogueData()
+    {
+        if (_dialogueDataPatched) return;
+
+        Type gameHandlerType = FindLoadedType("GameHandler");
+        if (gameHandlerType == null) return;
+        PropertyInfo instanceProperty = gameHandlerType.GetProperty("Instance", BindingFlags.Public | BindingFlags.Static);
+        object gameHandler = instanceProperty == null ? null : instanceProperty.GetValue(null, null);
+        if (gameHandler == null) return;
+
+        FieldInfo dialogDataField = gameHandlerType.GetField("dialogData", BindingFlags.Public | BindingFlags.Instance);
+        object dialogData = dialogDataField == null ? null : dialogDataField.GetValue(gameHandler);
+        if (dialogData == null) return;
+        FieldInfo dialogsField = dialogData.GetType().GetField("dialogs", BindingFlags.Public | BindingFlags.Instance);
+        Array dialogs = dialogsField == null ? null : dialogsField.GetValue(dialogData) as Array;
+        if (dialogs == null) return;
+
+        for (int dialogIndex = 0; dialogIndex < dialogs.Length; dialogIndex++)
+        {
+            object dialog = dialogs.GetValue(dialogIndex);
+            if (dialog == null) continue;
+            FieldInfo linesField = dialog.GetType().GetField("lines", BindingFlags.Public | BindingFlags.Instance);
+            string[] lines = linesField == null ? null : linesField.GetValue(dialog) as string[];
+            if (lines == null) continue;
+            for (int lineIndex = 0; lineIndex < lines.Length; lineIndex++)
+            {
+                string translated;
+                if (!TryTranslateDialogueProof(lines[lineIndex], out translated)) continue;
+                lines[lineIndex] = translated;
+                _dialogueDataPatched = true;
+                Debug.Log("[ChineseLocalization] Replaced dialogue data: dialog " + dialogIndex + ", line " + lineIndex);
+            }
+        }
+    }
+
+    private static Type FindLoadedType(string typeName)
+    {
+        Assembly[] assemblies = AppDomain.CurrentDomain.GetAssemblies();
+        for (int i = 0; i < assemblies.Length; i++)
+        {
+            Type type = assemblies[i].GetType(typeName, false);
+            if (type != null) return type;
+        }
+        return null;
+    }
+    private static bool TryTranslateDialogueProof(string text, out string translated)
+    {
+        translated = null;
+        if (text == null) return false;
+        string normalized = text.Replace("\r\n", "\n").TrimEnd();
+        if (string.Equals(normalized, DialogueProofSource, StringComparison.Ordinal))
+        {
+            translated = DialogueProofTranslation;
+            return true;
+        }
+        if (string.Equals(normalized, DialogueFollowupSource1, StringComparison.Ordinal))
+        {
+            translated = DialogueFollowupTranslation1;
+            return true;
+        }
+        if (string.Equals(normalized, DialogueFollowupSource2, StringComparison.Ordinal))
+        {
+            translated = DialogueFollowupTranslation2;
+            return true;
+        }
+        return false;
+    }
+
     private static bool ContainsChinese(string text)
     {
         if (text == null) return false;
@@ -381,3 +571,28 @@ public class ChineseLocalizationPlugin : IModPlugin
         state.textColor = color;
     }
 }
+// Must be a top-level MonoBehaviour. Unity 4.2 refuses nested plug-in behaviours
+// when adding a component at runtime.
+public class ChineseDialogueTextWatcher : MonoBehaviour
+{
+    private void Update()
+    {
+        ChineseLocalizationPlugin.TickDialogueTextWatcher();
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

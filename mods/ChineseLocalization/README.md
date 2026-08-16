@@ -15,4 +15,9 @@ C:\Windows\Microsoft.NET\Framework\v3.5\csc.exe @mods\ChineseLocalization\build.
 
 生成的常规与小字号图集（`font_atlas*.png`、`glyphs*.tsv`）与 DLL、`plugin.json` 一并放入游戏的 `MegabytePunch_Data\Mods\ChineseLocalization\`。
 
+`scripts\build_all.ps1` 还会生成 `dialogue_font_atlas.png` 与 `dialogue_glyphs.tsv`。它以 Visitor TT2 BRK 栅格化 ASCII 字形，并仅为当前 TextMesh 验证句补入 BoutiqueBitmap 9x9 Bold 中文字符。
+
 字体：BoutiqueBitmap 9x9 Bold 1.93（Add Spacing），采用 SIL Open Font License 1.1；发布包必须保留 `FONT_LICENSE.txt` 与 `FONT_NOTICE.md`。英文 ASCII 字形来自游戏原版 ACKNOWTT。
+
+对话验证的中文字体同样为 BoutiqueBitmap 9x9 Bold 1.93（Add Spacing）；许可说明由 `FONT_LICENSE.txt` 与 `FONT_NOTICE.md` 覆盖。 
+

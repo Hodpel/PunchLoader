@@ -1,0 +1,160 @@
+using System;
+using System.IO;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Collections.Generic;
+using System.Drawing;
+using System.Drawing.Imaging;
+using System.Drawing.Text;
+using System.Drawing.Drawing2D;
+
+// Builds the dialogue proof's static mixed font.
+// ASCII is rasterized from Visitor TT2 BRK (the visitor2 face) at its native 50px
+// source size; Chinese is BoutiqueBitmap 9x9 Bold, rasterized at the dialogue target height.
+class BuildDialogueFontAtlas
+{
+    class Glyph
+    {
+        public int Code;
+        public Bitmap Image;
+        public float VX, VY, VW, VH, Advance;
+        public int X, Y;
+    }
+
+    static float ParseFloat(string value) { return float.Parse(value, System.Globalization.CultureInfo.InvariantCulture); }
+    static string Combine(params string[] parts) { string result = parts[0]; for (int i = 1; i < parts.Length; i++) result = Path.Combine(result, parts[i]); return result; }
+    static string Float(float value) { return value.ToString(System.Globalization.CultureInfo.InvariantCulture); }
+
+    static List<Glyph> ReadVisitorMetrics(string fontPath)
+    {
+        string font = File.ReadAllText(fontPath);
+        Regex pattern = new Regex(
+            @"index: (?<index>\d+)\s+uv:\s+serializedVersion: 2\s+" +
+            @"x: (?<uvx>-?[\d.]+)\s+y: (?<uvy>-?[\d.]+)\s+" +
+            @"width: (?<uvw>-?[\d.]+)\s+height: (?<uvh>-?[\d.]+)\s+" +
+            @"vert:\s+serializedVersion: 2\s+x: (?<vx>-?[\d.]+)\s+" +
+            @"y: (?<vy>-?[\d.]+)\s+width: (?<vw>-?[\d.]+)\s+" +
+            @"height: (?<vh>-?[\d.]+)\s+width: (?<advance>-?[\d.]+)", RegexOptions.Singleline);
+        List<Glyph> glyphs = new List<Glyph>();
+        foreach (Match match in pattern.Matches(font))
+        {
+            int code = int.Parse(match.Groups["index"].Value);
+            if (code < 32 || code > 126) continue;
+            Glyph glyph = new Glyph();
+            glyph.Code = code;
+            glyph.VX = ParseFloat(match.Groups["vx"].Value);
+            glyph.VY = ParseFloat(match.Groups["vy"].Value);
+            glyph.VW = ParseFloat(match.Groups["vw"].Value);
+            glyph.VH = ParseFloat(match.Groups["vh"].Value);
+            glyph.Advance = ParseFloat(match.Groups["advance"].Value);
+            glyphs.Add(glyph);
+        }
+        if (glyphs.Count != 95) throw new Exception("visitor2 ASCII glyph count was " + glyphs.Count);
+        return glyphs;
+    }
+
+    static Bitmap RasterGlyph(Font font, char character)
+    {
+        Bitmap work = new Bitmap(192, 192, PixelFormat.Format32bppArgb);
+        using (Graphics g = Graphics.FromImage(work))
+        {
+            g.Clear(Color.Transparent);
+            g.TextRenderingHint = TextRenderingHint.SingleBitPerPixelGridFit;
+            g.SmoothingMode = SmoothingMode.None;
+            g.PixelOffsetMode = PixelOffsetMode.Half;
+            g.DrawString(character.ToString(), font, Brushes.White, 48, 48, StringFormat.GenericTypographic);
+        }
+        int minX = work.Width, minY = work.Height, maxX = -1, maxY = -1;
+        for (int y = 0; y < work.Height; y++)
+            for (int x = 0; x < work.Width; x++)
+                if (work.GetPixel(x, y).A >= 128)
+                {
+                    if (x < minX) minX = x; if (x > maxX) maxX = x;
+                    if (y < minY) minY = y; if (y > maxY) maxY = y;
+                }
+        if (maxX < minX) { work.Dispose(); return new Bitmap(1, 1, PixelFormat.Format32bppArgb); }
+        Bitmap cropped = new Bitmap(maxX - minX + 1, maxY - minY + 1, PixelFormat.Format32bppArgb);
+        using (Graphics g = Graphics.FromImage(cropped)) g.DrawImageUnscaled(work, -minX, -minY);
+        work.Dispose();
+        return cropped;
+    }
+
+    static void Main(string[] args)
+    {
+        string root = args.Length > 0 ? Path.GetFullPath(args[0]) : Directory.GetCurrentDirectory();
+        string parent = Directory.GetParent(root).FullName;
+        string visitorAsset = Combine(parent, "文件整理", "ExportedProject", "Assets", "Font", "visitor2.asset");
+        string visitorTtf = Combine(root, "tools", "fonts", "VisitorTT2BRK.ttf");
+        string boutiqueTtf = Combine(root, "tools", "fonts", "BoutiqueBitmap9x9_Bold_1.93.ttf");
+        string outputDir = Combine(root, "mods", "ChineseLocalization");
+        if (!File.Exists(visitorAsset) || !File.Exists(visitorTtf) || !File.Exists(boutiqueTtf))
+            throw new FileNotFoundException("visitor2 metrics or dialogue font source is missing");
+
+        List<Glyph> glyphs = ReadVisitorMetrics(visitorAsset);
+        PrivateFontCollection collection = new PrivateFontCollection();
+        collection.AddFontFile(visitorTtf);
+        collection.AddFontFile(boutiqueTtf);
+        FontFamily visitorFamily = collection.Families[0];
+        FontFamily boutiqueFamily = collection.Families[1];
+        using (Font visitor = new Font(visitorFamily, 50, FontStyle.Regular, GraphicsUnit.Pixel))
+        using (Font boutique = new Font(boutiqueFamily, 23, FontStyle.Bold, GraphicsUnit.Pixel))
+        {
+            foreach (Glyph glyph in glyphs) glyph.Image = RasterGlyph(visitor, (char)glyph.Code);
+            string chinese = "你带回了心核恢复和平我们永远感激不尽各关卡的大门仍然敞开可以自行返回去寻找隐藏的色彩特殊零件和其他秘密、";
+            HashSet<char> emitted = new HashSet<char>();
+            foreach (char character in chinese)
+            {
+                if (!emitted.Add(character)) continue;                Glyph glyph = new Glyph();
+                glyph.Code = (int)character;
+                glyph.Image = RasterGlyph(boutique, character);
+                glyph.VX = 0;
+                glyph.VY = -7.2f + (glyph.Image.Height - 20) * 0.5f;
+                glyph.VW = glyph.Image.Width;
+                glyph.VH = -glyph.Image.Height;
+                // visitor2 leaves roughly 3px between its 20px caps.
+                glyph.Advance = glyph.Image.Width + 3;
+                glyphs.Add(glyph);
+            }
+        }
+        collection.Dispose();
+
+        int maxWidth = 1, maxHeight = 1;
+        foreach (Glyph glyph in glyphs) { if (glyph.Image.Width > maxWidth) maxWidth = glyph.Image.Width; if (glyph.Image.Height > maxHeight) maxHeight = glyph.Image.Height; }
+        const int padding = 2;
+        int cellWidth = maxWidth + padding * 2;
+        int cellHeight = maxHeight + padding * 2;
+        const int columns = 16;
+        int rows = (glyphs.Count + columns - 1) / columns;
+        int atlasWidth = 512, atlasHeight = 512;
+        if (columns * cellWidth > atlasWidth || rows * cellHeight > atlasHeight) throw new Exception("Dialogue atlas exceeds 512px");
+
+        Bitmap atlas = new Bitmap(atlasWidth, atlasHeight, PixelFormat.Format32bppArgb);
+        using (Graphics g = Graphics.FromImage(atlas))
+        {
+            g.Clear(Color.Transparent);
+            for (int i = 0; i < glyphs.Count; i++)
+            {
+                Glyph glyph = glyphs[i];
+                glyph.X = (i % columns) * cellWidth + padding;
+                glyph.Y = (i / columns) * cellHeight + padding;
+                g.DrawImageUnscaled(glyph.Image, glyph.X, glyph.Y);
+            }
+        }
+
+        string png = Path.Combine(outputDir, "dialogue_font_atlas.png");
+        string map = Path.Combine(outputDir, "dialogue_glyphs.tsv");
+        atlas.Save(png, ImageFormat.Png);
+        using (StreamWriter writer = new StreamWriter(map, false, new UTF8Encoding(true)))
+        {
+            writer.WriteLine("# atlas\t" + atlasWidth + "\t" + atlasHeight + "\t50");
+            foreach (Glyph glyph in glyphs)
+                writer.WriteLine(glyph.Code + "\t" + glyph.X + "\t" + glyph.Y + "\t" + glyph.Image.Width + "\t" + glyph.Image.Height + "\t" + Float(glyph.VX) + "\t" + Float(glyph.VY) + "\t" + Float(glyph.VW) + "\t" + Float(glyph.VH) + "\t" + Float(glyph.Advance));
+        }
+        foreach (Glyph glyph in glyphs) glyph.Image.Dispose();
+        atlas.Dispose();
+        Console.WriteLine("[DialogueAtlas] Wrote " + png + " and " + map + " (" + glyphs.Count + " glyphs; raster visitor2 ASCII + BoutiqueBitmap Bold CJK)");
+    }
+}
+
+
+

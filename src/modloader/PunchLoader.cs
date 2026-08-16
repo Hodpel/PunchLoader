@@ -443,6 +443,10 @@ namespace PunchLoader
     public delegate void BeginGUIHandler(MonoBehaviour menu);
     public delegate string PreDoActionHandler(string action);
     public delegate string TextTransformHandler(string text);
+    // TextMesh is used by in-world dialogue.  Its setter must be intercepted
+    // before the original English reaches the renderer; overlaying after the
+    // fact would produce a visible English frame.
+    public delegate bool TextMeshTextHandler(TextMesh textMesh, string originalText);
     // A renderer can preserve the original GUILayout pass for layout/hit testing,
     // then draw a replacement string into that exact final rectangle.
     public delegate bool GUILayoutLabelHandler(string originalText, string renderedText,
@@ -454,6 +458,7 @@ namespace PunchLoader
         private static List<PreDoActionHandler> _preDoActionHandlers = new List<PreDoActionHandler>();
         private static List<TextTransformHandler> _textTransformHandlers = new List<TextTransformHandler>();
         private static List<GUILayoutLabelHandler> _gUILayoutLabelHandlers = new List<GUILayoutLabelHandler>();
+        private static List<TextMeshTextHandler> _textMeshTextHandlers = new List<TextMeshTextHandler>();
 
         public static void Register(BeginGUIHandler handler)
         {
@@ -479,6 +484,12 @@ namespace PunchLoader
                 _gUILayoutLabelHandlers.Add(handler);
         }
 
+        public static void Register(TextMeshTextHandler handler)
+        {
+            if (handler != null && !_textMeshTextHandlers.Contains(handler))
+                _textMeshTextHandlers.Add(handler);
+        }
+
         public static void Unregister(BeginGUIHandler handler)
         {
             if (handler != null) _beginGUIHandlers.Remove(handler);
@@ -497,6 +508,11 @@ namespace PunchLoader
         public static void Unregister(GUILayoutLabelHandler handler)
         {
             if (handler != null) _gUILayoutLabelHandlers.Remove(handler);
+        }
+
+        public static void Unregister(TextMeshTextHandler handler)
+        {
+            if (handler != null) _textMeshTextHandlers.Remove(handler);
         }
 
         public static void Dispatch(MonoBehaviour menu)
@@ -555,6 +571,20 @@ namespace PunchLoader
             }
             return false;
         }
+
+        public static bool DispatchTextMeshText(TextMesh textMesh, string originalText)
+        {
+            TextMeshTextHandler[] handlers = _textMeshTextHandlers.ToArray();
+            for (int i = 0; i < handlers.Length; i++)
+            {
+                try
+                {
+                    if (handlers[i](textMesh, originalText)) return true;
+                }
+                catch (Exception ex) { Debug.LogError("[PunchLoader] TextMesh hook failed: " + ex); }
+            }
+            return false;
+        }
     }
 
     public static class HookDispatcher
@@ -584,6 +614,15 @@ namespace PunchLoader
             GUIStyle style = GUI.skin == null ? null : GUI.skin.label;
             if (!HookManager.DispatchGUILayoutLabel(text, rendered, style, options))
                 GUILayout.Label(rendered, options);
+        }
+
+        // Replaces UnityEngine.TextMesh.set_text(string) in Assembly-CSharp.
+        // A handler owns the assignment only when it has an exact localization
+        // match; otherwise the original setter call is reproduced unchanged.
+        public static void SetTextMeshText(TextMesh textMesh, string text)
+        {
+            if (textMesh == null) return;
+            if (!HookManager.DispatchTextMeshText(textMesh, text)) textMesh.text = text;
         }
     }
 

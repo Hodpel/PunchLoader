@@ -124,7 +124,11 @@ public class Injector
             // 文本只在绘制时转换，原始 menuEntries 始终保留动作键。
             InjectGUILayoutLabelHooks(asm);
 
-            // === 步骤7: 写回修改后的 dll ===
+            // === 步骤7: 将 TextMesh.text 赋值改为通用对话包装器 ===
+            // 中文在 setter 前写入，因此对话框不会先显示一帧英文。
+            InjectTextMeshSetTextHooks(asm);
+
+            // === 步骤8: 写回修改后的 dll ===
             asm.Write(TARGET_DLL);
             Console.WriteLine("[Injector] Done.");
             return 0;
@@ -320,6 +324,49 @@ public class Injector
             }
         }
         Console.WriteLine("[Injector] Patched " + patches + " GUILayout.Label call(s)");
+    }
+
+    // ====================================================================
+    // 钩子5: 将 UnityEngine.TextMesh.set_text(string) 变为
+    // HookDispatcher.SetTextMeshText(TextMesh, string)。实例调用与静态调用
+    // 的参数栈完全一致，因此可以直接替换操作数，不改变控制流。
+    // ====================================================================
+    static void InjectTextMeshSetTextHooks(Cecil.AssemblyDefinition asm)
+    {
+        Cecil.MethodReference setText = FindPunchLoaderMethod(asm, "SetTextMeshText", 2);
+        if (setText == null)
+        {
+            Console.WriteLine("WARNING: HookDispatcher.SetTextMeshText not found in PunchLoader.dll");
+            return;
+        }
+
+        int patches = 0;
+        foreach (Cecil.TypeDefinition type in asm.MainModule.Types)
+        {
+            foreach (Cecil.MethodDefinition method in type.Methods)
+            {
+                if (!method.HasBody) continue;
+                CecilCil.Instruction instruction = method.Body.Instructions[0];
+                while (instruction != null)
+                {
+                    if ((instruction.OpCode == CecilCil.OpCodes.Call || instruction.OpCode == CecilCil.OpCodes.Callvirt) &&
+                        instruction.Operand is Cecil.MethodReference)
+                    {
+                        Cecil.MethodReference called = (Cecil.MethodReference)instruction.Operand;
+                        if (called.DeclaringType.FullName == "UnityEngine.TextMesh" &&
+                            called.Name == "set_text" && called.Parameters.Count == 1 &&
+                            called.Parameters[0].ParameterType.FullName == "System.String")
+                        {
+                            instruction.OpCode = CecilCil.OpCodes.Call;
+                            instruction.Operand = setText;
+                            patches++;
+                        }
+                    }
+                    instruction = instruction.Next;
+                }
+            }
+        }
+        Console.WriteLine("[Injector] Patched " + patches + " TextMesh.set_text call(s)");
     }
 
     static Cecil.MethodReference FindPunchLoaderMethod(Cecil.AssemblyDefinition targetAsm,
