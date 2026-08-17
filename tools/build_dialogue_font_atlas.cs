@@ -87,7 +87,8 @@ class BuildDialogueFontAtlas
         string visitorTtf = Combine(root, "tools", "fonts", "VisitorTT2BRK.ttf");
         string boutiqueTtf = Combine(root, "tools", "fonts", "BoutiqueBitmap9x9_Bold_1.93.ttf");
         string outputDir = Combine(root, "mods", "ChineseLocalization");
-        if (!File.Exists(visitorAsset) || !File.Exists(visitorTtf) || !File.Exists(boutiqueTtf))
+        string dialogueTranslations = Combine(outputDir, "dialogue_translations.tsv");
+        if (!File.Exists(visitorAsset) || !File.Exists(visitorTtf) || !File.Exists(boutiqueTtf) || !File.Exists(dialogueTranslations))
             throw new FileNotFoundException("visitor2 metrics or dialogue font source is missing");
 
         List<Glyph> glyphs = ReadVisitorMetrics(visitorAsset);
@@ -100,11 +101,12 @@ class BuildDialogueFontAtlas
         using (Font boutique = new Font(boutiqueFamily, 23, FontStyle.Bold, GraphicsUnit.Pixel))
         {
             foreach (Glyph glyph in glyphs) glyph.Image = RasterGlyph(visitor, (char)glyph.Code);
-            string chinese = "你带回了心核恢复和平我们永远感激不尽各关卡的大门仍然敞开可以自行返回去寻找隐藏的色彩特殊零件和其他秘密、";
+            string chinese = File.ReadAllText(dialogueTranslations, Encoding.UTF8);
             HashSet<char> emitted = new HashSet<char>();
             foreach (char character in chinese)
             {
-                if (!emitted.Add(character)) continue;                Glyph glyph = new Glyph();
+                if (character <= 126 || char.IsControl(character) || !emitted.Add(character)) continue;
+                Glyph glyph = new Glyph();
                 glyph.Code = (int)character;
                 glyph.Image = RasterGlyph(boutique, character);
                 glyph.VX = 0;
@@ -125,8 +127,8 @@ class BuildDialogueFontAtlas
         int cellHeight = maxHeight + padding * 2;
         const int columns = 16;
         int rows = (glyphs.Count + columns - 1) / columns;
-        int atlasWidth = 512, atlasHeight = 512;
-        if (columns * cellWidth > atlasWidth || rows * cellHeight > atlasHeight) throw new Exception("Dialogue atlas exceeds 512px");
+        int atlasWidth = 512, atlasHeight = 2048;
+        if (columns * cellWidth > atlasWidth || rows * cellHeight > atlasHeight) throw new Exception("Dialogue atlas exceeds 512x2048px");
 
         Bitmap atlas = new Bitmap(atlasWidth, atlasHeight, PixelFormat.Format32bppArgb);
         using (Graphics g = Graphics.FromImage(atlas))

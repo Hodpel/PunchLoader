@@ -15,6 +15,7 @@ public class ChineseLocalizationPlugin : IModPlugin
     private static Font _font;
     private static Font _smallFont;
     private static Font _dialogueFont;
+    private static Dictionary<string, string> _dialogueTranslations;
     private static Font _dialogueRuntimeFont;
     private static ChineseDialogueTextWatcher _dialogueTextWatcher;
     private static bool _dialogueDataPatched;
@@ -32,15 +33,6 @@ public class ChineseLocalizationPlugin : IModPlugin
     // that growth so its visual centre remains on the original ACKNOWTT centre.
     private const float LocalizedTextYOffset = -24f;
     private const float SmallLocalizedTextYOffset = -17f;
-    // First TextMesh proof: keep the scope intentionally to one verified line.
-    // Newlines are normalized because the game serializes TextMesh text as CRLF.
-    private const string DialogueProofSource = "You have our eternal\ngratitude for returning\nthe heartcore and \nrestoring peace!";
-    private const string DialogueProofTranslation = "你带回了心核,\n恢复了和平,\n我们永远感激不尽!";
-    private const string DialogueFollowupSource1 = "The doors to the different\nlevels are still open!";
-    private const string DialogueFollowupTranslation1 = "各关卡的大门仍然敞开!";
-    private const string DialogueFollowupSource2 = "It is up to you to return\nand search for hidden \ncolors, special parts and\nother secrets.";
-    private const string DialogueFollowupTranslation2 = "你可以自行返回,\n去寻找隐藏的色彩、\n特殊零件和其他秘密.";
-
     public string GetId() { return "ChineseLocalization"; }
     public string GetName() { return "简体中文"; }
     public string GetVersion() { return "1.0.0"; }
@@ -54,6 +46,8 @@ public class ChineseLocalizationPlugin : IModPlugin
             string modDirectory = Path.Combine(Path.Combine(Application.dataPath, "Mods"), GetId());
             Dictionary<string, string> translations = LoadTranslations(
                 Path.Combine(modDirectory, "translations.tsv"));
+            Dictionary<string, string> dialogueTranslations = LoadDialogueTranslations(
+                Path.Combine(modDirectory, "dialogue_translations.tsv"));
             Font font = LoadFont(modDirectory, "font_atlas.png", "glyphs.tsv",
                 "PunchLoader ACKNOWTT + BoutiqueBitmap");
             Font smallFont = LoadFont(modDirectory, "font_atlas_small.png", "glyphs_small.tsv",
@@ -66,6 +60,7 @@ public class ChineseLocalizationPlugin : IModPlugin
             _font = font;
             _smallFont = smallFont;
             _dialogueFont = dialogueFont;
+            _dialogueTranslations = dialogueTranslations;
             _layoutStyles = new Dictionary<GUIStyle, GUIStyle>();
             _renderStyles = new Dictionary<GUIStyle, GUIStyle>();
             HookManager.Register(new TextTransformHandler(Translate));
@@ -458,24 +453,31 @@ public class ChineseLocalizationPlugin : IModPlugin
     private static bool TryTranslateDialogueProof(string text, out string translated)
     {
         translated = null;
-        if (text == null) return false;
+        if (text == null || _dialogueTranslations == null) return false;
         string normalized = text.Replace("\r\n", "\n").TrimEnd();
-        if (string.Equals(normalized, DialogueProofSource, StringComparison.Ordinal))
+        return _dialogueTranslations.TryGetValue(normalized, out translated);
+    }
+
+    private static Dictionary<string, string> LoadDialogueTranslations(string path)
+    {
+        if (!File.Exists(path)) throw new FileNotFoundException("dialogue_translations.tsv missing", path);
+        Dictionary<string, string> result = new Dictionary<string, string>(StringComparer.Ordinal);
+        using (StreamReader reader = new StreamReader(path, System.Text.Encoding.UTF8, true))
         {
-            translated = DialogueProofTranslation;
-            return true;
+            string line;
+            int lineNumber = 0;
+            while ((line = reader.ReadLine()) != null)
+            {
+                lineNumber++;
+                if (lineNumber == 1 || line.Length == 0 || line[0] == '#') continue;
+                string[] parts = line.Split(new char[] { '\t' }, 4);
+                if (parts.Length != 4) throw new Exception("Invalid dialogue translation row " + lineNumber);
+                string source = parts[2].Replace("\\n", "\n").TrimEnd();
+                result[source] = parts[3].Replace("\\n", "\n");
+            }
         }
-        if (string.Equals(normalized, DialogueFollowupSource1, StringComparison.Ordinal))
-        {
-            translated = DialogueFollowupTranslation1;
-            return true;
-        }
-        if (string.Equals(normalized, DialogueFollowupSource2, StringComparison.Ordinal))
-        {
-            translated = DialogueFollowupTranslation2;
-            return true;
-        }
-        return false;
+        if (result.Count == 0) throw new Exception("No dialogue translations loaded");
+        return result;
     }
 
     private static bool ContainsChinese(string text)
