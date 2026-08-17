@@ -100,8 +100,12 @@ class BuildDialogueFontAtlas
         collection.AddFontFile(boutiqueTtf);
         FontFamily visitorFamily = collection.Families[0];
         FontFamily boutiqueFamily = collection.Families[1];
+        // Dialogue and part descriptions use a 27px Boutique source raster,
+        // yielding 24px visible Chinese glyphs next to Visitor's unchanged
+        // 20px ASCII caps.
+        float boutiquePixels = 27f;
         using (Font visitor = new Font(visitorFamily, 50, FontStyle.Regular, GraphicsUnit.Pixel))
-        using (Font boutique = new Font(boutiqueFamily, 23, FontStyle.Bold, GraphicsUnit.Pixel))
+        using (Font boutique = new Font(boutiqueFamily, boutiquePixels, FontStyle.Bold, GraphicsUnit.Pixel))
         {
             foreach (Glyph glyph in glyphs) glyph.Image = RasterGlyph(visitor, (char)glyph.Code);
             string chinese = File.ReadAllText(translations, Encoding.UTF8);

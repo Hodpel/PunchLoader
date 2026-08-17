@@ -33,17 +33,19 @@ MIXED_TEXT_SPACE = "\u2009"
 # Unity uses the Font fontSize as the default GUI line-height basis.  Preserve
 # ACKNOWTT's original 50px font size / 44.5px line spacing so GUILayout retains
 # the game's menu rhythm.  BoutiqueBitmap itself is rasterized independently at
-# 23px: its Chinese glyphs have a native 21px visible height.  The small face
-# uses a 17px raster vertically expanded with nearest-neighbour to 16px; neither
-# variant is horizontally scaled or filtered.
+# 25px for a 23px large-menu glyph and 19px for an 18px small-menu glyph.
+# Neither variant is horizontally scaled or filtered.  Equipment names retain
+# their separately accepted 21px face.
 FONT_SIZE = 50
-BOUTIQUE_RASTER_SIZE = 23
-BOUTIQUE_TARGET_HEIGHT = 21
+BOUTIQUE_RASTER_SIZE = 25
+BOUTIQUE_TARGET_HEIGHT = 23
 ACK_CAP_Y = -17.55
 SMALL_FONT_SIZE = 35
-SMALL_BOUTIQUE_RASTER_SIZE = 17
-SMALL_BOUTIQUE_TARGET_HEIGHT = 16
+SMALL_BOUTIQUE_RASTER_SIZE = 19
+SMALL_BOUTIQUE_TARGET_HEIGHT = 18
 SMALL_ACK_CAP_Y = -11.585
+PART_BOUTIQUE_RASTER_SIZE = 25
+PART_BOUTIQUE_TARGET_HEIGHT = 23
 PADDING = 2
 MAX_SIZE = 2048
 
@@ -154,8 +156,9 @@ def boutique_glyph(font, char, cap_y, raster_size, target_height):
     image = image.point(lambda value: 255 if value >= 128 else 0)
     if image.height != target_height:
         image = image.resize((image.width, target_height), Image.Resampling.NEAREST)
-    # Match ACKNOWTT's exported capital top coordinate rather than Pillow's
-    # local glyph origin, so CJK shares the original menu baseline.
+    # `cap_y` is chosen so the CJK character box shares ACKNOWTT's capital
+    # vertical centre, rather than its top edge.  This keeps a 23px Chinese
+    # glyph centred against a 19px ASCII cap, and likewise for the small face.
     return image, box[0], cap_y, image.width, -image.height, max(advance, image.width)
 
 
@@ -179,8 +182,11 @@ def choose_layout(glyphs):
     return best
 
 
-def build_variant(ack, targets, raster_size, target_height, font_size, cap_y, png_path, map_path):
+def build_variant(ack, targets, raster_size, target_height, font_size, cap_y, png_path, map_path,
+                  center_cjk=True):
     boutique = ImageFont.truetype(str(FONT), raster_size)
+    ascii_cap_height = abs(ack["A"][4])
+    cjk_cap_y = cap_y + (target_height - ascii_cap_height) * 0.5 if center_cjk else cap_y
     glyphs = []
     for char in sorted(ack):
         glyphs.append((char,) + ack[char])
@@ -192,7 +198,7 @@ def build_variant(ack, targets, raster_size, target_height, font_size, cap_y, pn
             _, vx, vy, _, _, advance = ack[" "]
             glyphs.append((char, Image.new("L", (1, 1), 0), vx, vy, 0, 0, advance * 0.5))
             continue
-        glyphs.append((char,) + boutique_glyph(boutique, char, cap_y, raster_size, target_height))
+        glyphs.append((char,) + boutique_glyph(boutique, char, cjk_cap_y, raster_size, target_height))
 
     _, columns, atlas_width, atlas_height, cell_width, cell_height = choose_layout(glyphs)
     atlas = Image.new("RGBA", (atlas_width, atlas_height), (0, 0, 0, 0))
@@ -233,10 +239,12 @@ def build(args):
                   SMALL_FONT_SIZE, SMALL_ACK_CAP_Y,
                   SMALL_PNG, SMALL_MAP)
     # The inventory and collection use the same 50px ACKNOWTT face as menus,
-    # but need the complete 150-part vocabulary rather than menu labels.
+    # but need the complete 150-part vocabulary rather than menu labels.  Their
+    # Chinese glyphs use the same 23px visual height as the large menu face,
+    # while ACKNOWTT ASCII remains byte-for-byte from the original atlas.
     build_variant(ack, part_targets,
-                  BOUTIQUE_RASTER_SIZE, BOUTIQUE_TARGET_HEIGHT, FONT_SIZE, ACK_CAP_Y,
-                  PART_PNG, PART_MAP)
+                  PART_BOUTIQUE_RASTER_SIZE, PART_BOUTIQUE_TARGET_HEIGHT, FONT_SIZE, ACK_CAP_Y,
+                  PART_PNG, PART_MAP, center_cjk=True)
 
 
 if __name__ == "__main__":

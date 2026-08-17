@@ -47,10 +47,11 @@ public class ChineseLocalizationPlugin : IModPlugin
     // Dynamic Font has no way to inherit ACKNOWTT's native ascent.  This is the
     // measured GUI-space correction that centers the 19px Boutique glyphs in
     // the original menu label rectangle (between the selector bars).
-    // Both Boutique variants became 2px taller.  Shift each overlay up half
-    // that growth so its visual centre remains on the original ACKNOWTT centre.
-    private const float LocalizedTextYOffset = -24f;
-    private const float SmallLocalizedTextYOffset = -17f;
+    // CJK glyph metrics are centred against ACKNOWTT internally.  Move the
+    // complete menu overlay down by the same 2px so its established visual
+    // position between the selector bars remains unchanged.
+    private const float LocalizedTextYOffset = -23f;
+    private const float SmallLocalizedTextYOffset = -16f;
     public string GetId() { return "ChineseLocalization"; }
     public string GetName() { return "简体中文"; }
     public string GetVersion() { return "1.0.0"; }
