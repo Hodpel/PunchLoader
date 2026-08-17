@@ -90,8 +90,9 @@ class BuildDialogueFontAtlas
         bool partDescriptions = args.Length > 1 && args[1] == "part";
         string translations = Combine(outputDir,
             partDescriptions ? "part_translations.tsv" : "dialogue_translations.tsv");
+        string abilityTranslations = Combine(outputDir, "ability_translations.tsv");
         if (!File.Exists(visitorAsset) || !File.Exists(visitorTtf) || !File.Exists(boutiqueTtf) ||
-            !File.Exists(translations))
+            !File.Exists(translations) || (partDescriptions && !File.Exists(abilityTranslations)))
             throw new FileNotFoundException("visitor2 metrics or localization font source is missing");
 
         List<Glyph> glyphs = ReadVisitorMetrics(visitorAsset);
@@ -109,6 +110,8 @@ class BuildDialogueFontAtlas
         {
             foreach (Glyph glyph in glyphs) glyph.Image = RasterGlyph(visitor, (char)glyph.Code);
             string chinese = File.ReadAllText(translations, Encoding.UTF8);
+            if (partDescriptions)
+                chinese += File.ReadAllText(abilityTranslations, Encoding.UTF8);
             HashSet<char> emitted = new HashSet<char>();
             foreach (char character in chinese)
             {

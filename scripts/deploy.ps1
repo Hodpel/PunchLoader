@@ -46,6 +46,7 @@ Copy-Item "$modSource\dialogue_font_atlas.png" "$modTarget\dialogue_font_atlas.p
 Copy-Item "$modSource\dialogue_glyphs.tsv" "$modTarget\dialogue_glyphs.tsv" -Force
 Copy-Item "$modSource\dialogue_translations.tsv" "$modTarget\dialogue_translations.tsv" -Force
 Copy-Item "$modSource\part_translations.tsv" "$modTarget\part_translations.tsv" -Force
+Copy-Item "$modSource\ability_translations.tsv" "$modTarget\ability_translations.tsv" -Force
 
 Copy-Item "$modSource\FONT_LICENSE.txt" "$modTarget\FONT_LICENSE.txt" -Force
 Copy-Item "$modSource\FONT_NOTICE.md" "$modTarget\FONT_NOTICE.md" -Force

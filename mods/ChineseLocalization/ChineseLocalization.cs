@@ -21,9 +21,11 @@ public class ChineseLocalizationPlugin : IModPlugin
     private static Dictionary<string, string> _dialogueTranslations;
     private static Dictionary<string, string> _partNameTranslations;
     private static Dictionary<string, string> _partDescriptionTranslations;
+    private static Dictionary<string, string> _abilityTranslations;
     // Mono 2.x lacks HashSet<T>; use Dictionary keys for membership instead.
     private static Dictionary<string, bool> _localizedPartNames;
     private static Dictionary<string, bool> _localizedPartDescriptions;
+    private static Dictionary<string, bool> _localizedAbilityDescriptions;
     private static Font _dialogueRuntimeFont;
     private static Font _partRuntimeFont;
     private static Font _partDescriptionRuntimeFont;
@@ -68,6 +70,7 @@ public class ChineseLocalizationPlugin : IModPlugin
             Dictionary<string, string> dialogueTranslations = LoadDialogueTranslations(
                 Path.Combine(modDirectory, "dialogue_translations.tsv"));
             LoadPartTranslations(Path.Combine(modDirectory, "part_translations.tsv"));
+            LoadAbilityTranslations(Path.Combine(modDirectory, "ability_translations.tsv"));
             Font font = LoadFont(modDirectory, "font_atlas.png", "glyphs.tsv",
                 "PunchLoader ACKNOWTT + BoutiqueBitmap");
             Font smallFont = LoadFont(modDirectory, "font_atlas_small.png", "glyphs_small.tsv",
@@ -135,6 +138,8 @@ public class ChineseLocalizationPlugin : IModPlugin
         if (_renderStyles != null) _renderStyles.Clear();
         _dialogueDataPatched = false;
         _dialogueFontTraceLogged = false;
+        _abilityTranslations = null;
+        if (_localizedAbilityDescriptions != null) _localizedAbilityDescriptions.Clear();
         _registered = false;
     }
 
@@ -512,7 +517,8 @@ public class ChineseLocalizationPlugin : IModPlugin
             if (ContainsChinese(textMesh.text))
             {
                 if (IsPartNameText(textMesh.text)) ApplyPartFont(textMesh);
-                else if (IsPartDescriptionText(textMesh.text)) ApplyPartDescriptionFont(textMesh);
+                else if (IsPartDescriptionText(textMesh.text) || IsAbilityDescriptionText(textMesh.text))
+                    ApplyPartDescriptionFont(textMesh);
                 else ApplyDialogueFont(textMesh);
             }
             else ApplyLocalizedTextMesh(textMesh, textMesh.text);
@@ -596,6 +602,32 @@ public class ChineseLocalizationPlugin : IModPlugin
         return result;
     }
 
+    private static void LoadAbilityTranslations(string path)
+    {
+        if (!File.Exists(path)) throw new FileNotFoundException("ability_translations.tsv missing", path);
+        _abilityTranslations = new Dictionary<string, string>(StringComparer.Ordinal);
+        _localizedAbilityDescriptions = new Dictionary<string, bool>(StringComparer.Ordinal);
+        using (StreamReader reader = new StreamReader(path, System.Text.Encoding.UTF8, true))
+        {
+            string line;
+            int lineNumber = 0;
+            while ((line = reader.ReadLine()) != null)
+            {
+                lineNumber++;
+                if (line.Length == 0 || line[0] == '#') continue;
+                int tab = line.IndexOf('\t');
+                if (tab <= 0 || tab == line.Length - 1)
+                    throw new Exception("Invalid ability translation row " + lineNumber);
+
+                string source = NormalizeAbilityText(line.Substring(0, tab).Replace("\\n", "\n"));
+                string localized = NormalizeAbilityText(line.Substring(tab + 1).Replace("\\n", "\n"));
+                _abilityTranslations[source] = localized;
+                _localizedAbilityDescriptions[localized] = true;
+            }
+        }
+        if (_abilityTranslations.Count == 0) throw new Exception("No ability translations loaded");
+    }
+
     private static void LoadPartTranslations(string path)
     {
         _partNameTranslations = new Dictionary<string, string>();
@@ -640,27 +672,85 @@ public class ChineseLocalizationPlugin : IModPlugin
         return false;
     }
 
+    private static bool IsAbilityDescriptionText(string text)
+    {
+        if (text == null || _localizedAbilityDescriptions == null) return false;
+        string normalized = NormalizeAbilityText(text);
+        if (_localizedAbilityDescriptions.ContainsKey(normalized)) return true;
+        foreach (string description in _localizedAbilityDescriptions.Keys)
+            if (normalized.StartsWith(description + "\n\n\n", StringComparison.Ordinal)) return true;
+        return false;
+    }
+
     private static bool TryTranslatePartText(string text, out string translated)
     {
         translated = null;
-        if (text == null || _partNameTranslations == null || _partDescriptionTranslations == null)
+        if (text == null || _partNameTranslations == null || _partDescriptionTranslations == null ||
+            _abilityTranslations == null)
             return false;
         string normalized = NormalizePartText(text);
         if (_partNameTranslations.TryGetValue(normalized, out translated)) return true;
         if (_partDescriptionTranslations.TryGetValue(normalized, out translated)) return true;
+
+        string current = normalized;
+        bool replaced = TryReplaceAbilityDescription(current, out current);
         foreach (KeyValuePair<string, string> item in _partDescriptionTranslations)
         {
-            if (!normalized.EndsWith(item.Key, StringComparison.Ordinal)) continue;
-            translated = normalized.Substring(0, normalized.Length - item.Key.Length) + item.Value;
-            return true;
+            if (!current.EndsWith(item.Key, StringComparison.Ordinal)) continue;
+            current = current.Substring(0, current.Length - item.Key.Length) + item.Value;
+            replaced = true;
+            break;
         }
-        return false;
+        if (!replaced) return false;
+        translated = current;
+        return true;
     }
 
     private static string NormalizePartText(string text)
     {
         if (text == null) return string.Empty;
         return text.Replace("\r\n", "\n").Replace("\r", "\n").TrimEnd();
+    }
+
+    // Ability prefab descriptions contain trailing spaces and, in one case, a
+    // leading blank line. Normalizing every individual line allows exact,
+    // deterministic matching without relaxing the source text lookup.
+    private static string NormalizeAbilityText(string text)
+    {
+        if (text == null) return string.Empty;
+        string[] lines = text.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n');
+        StringBuilder result = new StringBuilder();
+        for (int i = 0; i < lines.Length; i++)
+        {
+            string line = lines[i].TrimEnd();
+            if (i == 0 && line.Length == 0) continue;
+            if (result.Length > 0) result.Append('\n');
+            result.Append(line);
+        }
+        return result.ToString().Trim();
+    }
+
+    // The collection screen builds one TextMesh from an ability description
+    // followed by three line breaks and the static part description. Translate
+    // just the leading ability block here; the caller then replaces the
+    // localized/English part-description suffix in the same write.
+    private static bool TryReplaceAbilityDescription(string text, out string translated)
+    {
+        translated = text;
+        string normalized = NormalizeAbilityText(text);
+        foreach (KeyValuePair<string, string> item in _abilityTranslations)
+        {
+            if (string.Equals(normalized, item.Key, StringComparison.Ordinal))
+            {
+                translated = item.Value;
+                return true;
+            }
+            string separator = item.Key + "\n\n\n";
+            if (!normalized.StartsWith(separator, StringComparison.Ordinal)) continue;
+            translated = item.Value + normalized.Substring(item.Key.Length);
+            return true;
+        }
+        return false;
     }
 
     private static string WrapPartDescription(string text)
