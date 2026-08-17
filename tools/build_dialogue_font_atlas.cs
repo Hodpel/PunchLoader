@@ -111,6 +111,20 @@ class BuildDialogueFontAtlas
                 if (character <= 126 || char.IsControl(character) || !emitted.Add(character)) continue;
                 Glyph glyph = new Glyph();
                 glyph.Code = (int)character;
+                if (character == '\u2009')
+                {
+                    // Match a half-width version of Visitor's 23px space.
+                    // This transparent glyph is reserved for CJK/ASCII joins;
+                    // ordinary English spaces keep their original metric.
+                    glyph.Image = new Bitmap(1, 1, PixelFormat.Format32bppArgb);
+                    glyph.VX = 0;
+                    glyph.VY = -27.2f;
+                    glyph.VW = 0;
+                    glyph.VH = 0;
+                    glyph.Advance = 12;
+                    glyphs.Add(glyph);
+                    continue;
+                }
                 glyph.Image = RasterGlyph(boutique, character);
                 glyph.VX = 0;
                 glyph.VY = -7.2f + (glyph.Image.Height - 20) * 0.5f;

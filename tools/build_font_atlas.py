@@ -28,6 +28,7 @@ SMALL_PNG = MOD / "font_atlas_small.png"
 SMALL_MAP = MOD / "glyphs_small.tsv"
 PART_PNG = MOD / "part_font_atlas.png"
 PART_MAP = MOD / "part_glyphs.tsv"
+MIXED_TEXT_SPACE = "\u2009"
 
 # Unity uses the Font fontSize as the default GUI line-height basis.  Preserve
 # ACKNOWTT's original 50px font size / 44.5px line spacing so GUILayout retains
@@ -184,6 +185,13 @@ def build_variant(ack, targets, raster_size, target_height, font_size, cap_y, pn
     for char in sorted(ack):
         glyphs.append((char,) + ack[char])
     for char in collect_characters(targets):
+        if char == MIXED_TEXT_SPACE:
+            # The game's normal ASCII space is intentionally broad.  This
+            # transparent glyph is used only between CJK and ASCII, at half
+            # of the original ACKNOWTT space advance.
+            _, vx, vy, _, _, advance = ack[" "]
+            glyphs.append((char, Image.new("L", (1, 1), 0), vx, vy, 0, 0, advance * 0.5))
+            continue
         glyphs.append((char,) + boutique_glyph(boutique, char, cap_y, raster_size, target_height))
 
     _, columns, atlas_width, atlas_height, cell_width, cell_height = choose_layout(glyphs)

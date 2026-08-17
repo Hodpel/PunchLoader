@@ -40,6 +40,10 @@ public class ChineseLocalizationPlugin : IModPlugin
     // source lines.  Chinese is reflowed to this measured visual width instead
     // of inheriting the original English line breaks.
     private const float PartDescriptionLineWidth = 24f;
+    // The original ASCII space is deliberately wide in both ACKNOWTT and
+    // Visitor.  Localized text uses this dedicated glyph only at a CJK/ASCII
+    // boundary, where it renders at half the original space advance.
+    private const char MixedTextSpace = '\u2009';
     // Dynamic Font has no way to inherit ACKNOWTT's native ascent.  This is the
     // measured GUI-space correction that centers the 19px Boutique glyphs in
     // the original menu label rectangle (between the selector bars).
@@ -668,16 +672,27 @@ public class ChineseLocalizationPlugin : IModPlugin
         {
             string token = NextPartToken(source, ref index);
             if (token.Length == 0) continue;
-            if (token == " ")
+            if (token == " " || token == MixedTextSpace.ToString())
             {
-                if (lineWidth > 0f) { result.Append(token); lineWidth += 0.35f; }
+                if (lineWidth > 0f)
+                {
+                    result.Append(token);
+                    lineWidth += token == " " ? 0.35f : 0.18f;
+                }
                 continue;
             }
 
             float tokenWidth = MeasurePartToken(token);
-            if (lineWidth > 0f && lineWidth + tokenWidth > PartDescriptionLineWidth)
+            // A punctuation mark after Chinese was previously an individual
+            // ASCII token.  When a line was full it was pushed onto a blank
+            // next line.  Keep closing punctuation attached to the preceding
+            // line; a one-character overflow is preferable to an orphan dot.
+            if (lineWidth > 0f && lineWidth + tokenWidth > PartDescriptionLineWidth &&
+                !IsTrailingPartPunctuation(token))
             {
-                while (result.Length > 0 && result[result.Length - 1] == ' ') result.Length--;
+                while (result.Length > 0 &&
+                    (result[result.Length - 1] == ' ' || result[result.Length - 1] == MixedTextSpace))
+                    result.Length--;
                 result.Append('\n');
                 lineWidth = 0f;
             }
@@ -690,14 +705,14 @@ public class ChineseLocalizationPlugin : IModPlugin
     private static string NextPartToken(string text, ref int index)
     {
         char first = text[index++];
-        if (first == ' ') return " ";
+        if (first == ' ' || first == MixedTextSpace) return first.ToString();
         if (first > 126) return first.ToString();
 
         int start = index - 1;
         while (index < text.Length)
         {
             char next = text[index];
-            if (next > 126 || next == ' ') break;
+            if (next > 126 || next == ' ' || next == MixedTextSpace) break;
             index++;
         }
         return text.Substring(start, index - start);
@@ -709,11 +724,25 @@ public class ChineseLocalizationPlugin : IModPlugin
         for (int i = 0; i < token.Length; i++)
         {
             char character = token[i];
-            if (character > 126) result += 1f;
+            if (character == MixedTextSpace) result += 0.18f;
+            else if (character > 126) result += 1f;
             else if (character == ' ') result += 0.35f;
             else result += 0.65f;
         }
         return result;
+    }
+
+    private static bool IsTrailingPartPunctuation(string token)
+    {
+        if (token.Length == 0) return false;
+        for (int i = 0; i < token.Length; i++)
+        {
+            char character = token[i];
+            if (character != '.' && character != ',' && character != '!' &&
+                character != '?' && character != ':' && character != ';' &&
+                character != ')' && character != ']' && character != '}') return false;
+        }
+        return true;
     }
 
     private static void PatchPartDescriptionData()

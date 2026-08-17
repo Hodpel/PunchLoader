@@ -9,10 +9,10 @@ new game	新游戏
 back	返回
 yes	是
 no	否
-1 player	1 名玩家
-2 players	2 名玩家
-3 players	3 名玩家
-4 players	4 名玩家
+1 player	1 名玩家
+2 players	2 名玩家
+3 players	3 名玩家
+4 players	4 名玩家
 select players	选择玩家人数
 select mode	选择模式
 tournament	锦标赛
@@ -29,12 +29,12 @@ ok	确定
 sound volume	音效音量
 music volume	音乐音量
 reset	重置
-player 1	玩家 1
-player 2	玩家 2
-player 3	玩家 3
-player 4	玩家 4
+player 1	玩家 1
+player 2	玩家 2
+player 3	玩家 3
+player 4	玩家 4
 default arrow keys	默认方向键
-default wasd keys	默认 WASD 键
+default wasd keys	默认 WASD 键
 default gamepad	默认手柄
 gamepad	手柄
 right	右
@@ -45,24 +45,24 @@ space	空格
 return	回车
 enter	回车
 backspace	退格
-left ctrl	左 Ctrl
-right ctrl	右 Ctrl
-left shift	左 Shift
-right shift	右 Shift
-left alt	左 Alt
-right alt	右 Alt
-left cmd	左 Cmd
-right cmd	右 Cmd
-mouse 0	鼠标 0
-joystick 1 button 0	手柄 1 按键 0
-LS Hor 1	左摇杆横轴 1
-LS Vert 1	左摇杆纵轴 1
-RS Hor 1	右摇杆横轴 1
-RS Vert 1	右摇杆纵轴 1
-PadHor 1	十字键横轴 1
-PadVert 1	十字键纵轴 1
-LT 1	左扳机 1
-RT 1	右扳机 1
+left ctrl	左 Ctrl
+right ctrl	右 Ctrl
+left shift	左 Shift
+right shift	右 Shift
+left alt	左 Alt
+right alt	右 Alt
+left cmd	左 Cmd
+right cmd	右 Cmd
+mouse 0	鼠标 0
+joystick 1 button 0	手柄 1 按键 0
+LS Hor 1	左摇杆横轴 1
+LS Vert 1	左摇杆纵轴 1
+RS Hor 1	右摇杆横轴 1
+RS Vert 1	右摇杆纵轴 1
+PadHor 1	十字键横轴 1
+PadVert 1	十字键纵轴 1
+LT 1	左扳机 1
+RT 1	右扳机 1
 attack	攻击
 specialAbility	特殊能力
 special ability	特殊能力
