@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Reflection;
+using System.Text;
 using PunchLoader;
 using UnityEngine;
 
@@ -15,8 +16,17 @@ public class ChineseLocalizationPlugin : IModPlugin
     private static Font _font;
     private static Font _smallFont;
     private static Font _dialogueFont;
+    private static Font _partFont;
+    private static Font _partDescriptionFont;
     private static Dictionary<string, string> _dialogueTranslations;
+    private static Dictionary<string, string> _partNameTranslations;
+    private static Dictionary<string, string> _partDescriptionTranslations;
+    // Mono 2.x lacks HashSet<T>; use Dictionary keys for membership instead.
+    private static Dictionary<string, bool> _localizedPartNames;
+    private static Dictionary<string, bool> _localizedPartDescriptions;
     private static Font _dialogueRuntimeFont;
+    private static Font _partRuntimeFont;
+    private static Font _partDescriptionRuntimeFont;
     private static ChineseDialogueTextWatcher _dialogueTextWatcher;
     private static bool _dialogueDataPatched;
     private static bool _dialogueFontTraceLogged;
@@ -26,6 +36,10 @@ public class ChineseLocalizationPlugin : IModPlugin
     // every binding value (including X/Z) GUILayout.MinWidth(64).
     private const float InputConfigAreaWidth = 700f;
     private const float InputBindingWidth = 64f;
+    // The Visitor description panel is substantially wider than its English
+    // source lines.  Chinese is reflowed to this measured visual width instead
+    // of inheriting the original English line breaks.
+    private const float PartDescriptionLineWidth = 24f;
     // Dynamic Font has no way to inherit ACKNOWTT's native ascent.  This is the
     // measured GUI-space correction that centers the 19px Boutique glyphs in
     // the original menu label rectangle (between the selector bars).
@@ -48,18 +62,26 @@ public class ChineseLocalizationPlugin : IModPlugin
                 Path.Combine(modDirectory, "translations.tsv"));
             Dictionary<string, string> dialogueTranslations = LoadDialogueTranslations(
                 Path.Combine(modDirectory, "dialogue_translations.tsv"));
+            LoadPartTranslations(Path.Combine(modDirectory, "part_translations.tsv"));
             Font font = LoadFont(modDirectory, "font_atlas.png", "glyphs.tsv",
                 "PunchLoader ACKNOWTT + BoutiqueBitmap");
             Font smallFont = LoadFont(modDirectory, "font_atlas_small.png", "glyphs_small.tsv",
                 "PunchLoader ACKNOWTT Small + BoutiqueBitmap");
             Font dialogueFont = LoadFont(modDirectory, "dialogue_font_atlas.png", "dialogue_glyphs.tsv",
                 "PunchLoader visitor2 + BoutiqueBitmap Bold");
-            if (font == null || smallFont == null || dialogueFont == null) return;
+            Font partFont = LoadFont(modDirectory, "part_font_atlas.png", "part_glyphs.tsv",
+                "PunchLoader ACKNOWTT + BoutiqueBitmap Bold Parts");
+            Font partDescriptionFont = LoadFont(modDirectory,
+                "part_description_font_atlas.png", "part_description_glyphs.tsv",
+                "PunchLoader visitor2 + BoutiqueBitmap Bold Part Descriptions");
+            if (font == null || smallFont == null || dialogueFont == null || partFont == null || partDescriptionFont == null) return;
 
             _translations = translations;
             _font = font;
             _smallFont = smallFont;
             _dialogueFont = dialogueFont;
+            _partFont = partFont;
+            _partDescriptionFont = partDescriptionFont;
             _dialogueTranslations = dialogueTranslations;
             _layoutStyles = new Dictionary<GUIStyle, GUIStyle>();
             _renderStyles = new Dictionary<GUIStyle, GUIStyle>();
@@ -68,6 +90,7 @@ public class ChineseLocalizationPlugin : IModPlugin
             HookManager.Register(new TextMeshTextHandler(DrawLocalizedTextMesh));
             CreateDialogueTextWatcher();
             PatchDialogueData();
+            PatchPartDescriptionData();
             _registered = true;
             Debug.Log("[ChineseLocalization] Ready: " + _translations.Count + " translations");
         }
@@ -91,6 +114,16 @@ public class ChineseLocalizationPlugin : IModPlugin
         {
             UnityEngine.Object.Destroy(_dialogueRuntimeFont);
             _dialogueRuntimeFont = null;
+        }
+        if (_partRuntimeFont != null)
+        {
+            UnityEngine.Object.Destroy(_partRuntimeFont);
+            _partRuntimeFont = null;
+        }
+        if (_partDescriptionRuntimeFont != null)
+        {
+            UnityEngine.Object.Destroy(_partDescriptionRuntimeFont);
+            _partDescriptionRuntimeFont = null;
         }
         }
         if (_layoutStyles != null) _layoutStyles.Clear();
@@ -351,11 +384,14 @@ public class ChineseLocalizationPlugin : IModPlugin
         if (textMesh == null || _dialogueFont == null) return false;
 
         string translated;
-        if (!TryTranslateDialogueProof(originalText, out translated)) return false;
-
-        ApplyDialogueFont(textMesh);
+        if (TryTranslateDialogueProof(originalText, out translated))
+            ApplyDialogueFont(textMesh);
+        else if (TryTranslatePartText(originalText, out translated))
+            ApplyPartDescriptionFont(textMesh);
+        else
+            return false;
         textMesh.text = translated;
-        Debug.Log("[ChineseLocalization] Replaced dialogue proof TextMesh: " + textMesh.gameObject.name);
+        Debug.Log("[ChineseLocalization] Replaced localized TextMesh: " + textMesh.gameObject.name);
         return true;
     }
 
@@ -376,9 +412,24 @@ public class ChineseLocalizationPlugin : IModPlugin
             object characters = typeof(Font).GetProperty("characterInfo").GetValue(_dialogueFont, null);
             typeof(Font).GetProperty("characterInfo").SetValue(_dialogueRuntimeFont, characters, null);
         }
-        textMesh.font = _dialogueRuntimeFont;
-        textMesh.fontSize = 50;
-        if (textMesh.renderer != null) textMesh.renderer.material = _dialogueRuntimeFont.material;        if (!_dialogueFontTraceLogged)
+        if (textMesh.font != _dialogueRuntimeFont)
+        {
+            // White text and its dark offset shadow are separate TextMeshes.
+            // Keep the existing renderer material (and therefore its colour),
+            // but point that material at the localized atlas.  Accessing
+            // renderer.material gives this renderer its own material instance;
+            // unlike constructing a new Material during startup, this is safe
+            // on the game's Unity version.
+            Material sourceMaterial = textMesh.renderer == null ? null : textMesh.renderer.material;
+            textMesh.font = _dialogueRuntimeFont;
+            textMesh.fontSize = 50;
+            if (sourceMaterial != null)
+            {
+                sourceMaterial.mainTexture = _dialogueFont.material.mainTexture;
+                textMesh.renderer.material = sourceMaterial;
+            }
+        }
+        if (!_dialogueFontTraceLogged)
         {
             CharacterInfo[] infos = (CharacterInfo[])typeof(Font).GetProperty("characterInfo").GetValue(_dialogueRuntimeFont, null);
             bool hasChineseGlyph = false;
@@ -390,15 +441,75 @@ public class ChineseLocalizationPlugin : IModPlugin
                 ", glyphs=" + infos.Length + ", hasU4F60=" + hasChineseGlyph +
                 ", text=" + textMesh.text);
         }
-    }    public static void TickDialogueTextWatcher()
+    }
+
+    // Collection, inventory and reward screens use ACKNOWTT, the same heavier
+    // face as the menu.  Their original font size is retained; this atlas uses
+    // matching ACKNOWTT metrics for the Chinese baseline.
+    private static void ApplyPartFont(TextMesh textMesh)
+    {
+        if (textMesh == null || _partFont == null) return;
+        if (_partRuntimeFont == null)
+        {
+            _partRuntimeFont = UnityEngine.Object.Instantiate(textMesh.font) as Font;
+            if (_partRuntimeFont == null) return;
+            _partRuntimeFont.name = "PunchLoader ACKNOWTT + BoutiqueBitmap Bold Parts Runtime";
+            typeof(Font).GetProperty("material").SetValue(_partRuntimeFont,
+                _partFont.material, null);
+            object characters = typeof(Font).GetProperty("characterInfo").GetValue(_partFont, null);
+            typeof(Font).GetProperty("characterInfo").SetValue(_partRuntimeFont, characters, null);
+        }
+        if (textMesh.font == _partRuntimeFont) return;
+
+        Material sourceMaterial = textMesh.renderer == null ? null : textMesh.renderer.material;
+        textMesh.font = _partRuntimeFont;
+        if (sourceMaterial != null)
+        {
+            sourceMaterial.mainTexture = _partFont.material.mainTexture;
+            textMesh.renderer.material = sourceMaterial;
+        }
+    }
+
+    private static void ApplyPartDescriptionFont(TextMesh textMesh)
+    {
+        if (textMesh == null || _partDescriptionFont == null) return;
+        if (_partDescriptionRuntimeFont == null)
+        {
+            _partDescriptionRuntimeFont = UnityEngine.Object.Instantiate(textMesh.font) as Font;
+            if (_partDescriptionRuntimeFont == null) return;
+            _partDescriptionRuntimeFont.name = "PunchLoader visitor2 + BoutiqueBitmap Bold Part Descriptions Runtime";
+            typeof(Font).GetProperty("material").SetValue(_partDescriptionRuntimeFont,
+                _partDescriptionFont.material, null);
+            object characters = typeof(Font).GetProperty("characterInfo").GetValue(_partDescriptionFont, null);
+            typeof(Font).GetProperty("characterInfo").SetValue(_partDescriptionRuntimeFont, characters, null);
+        }
+        if (textMesh.font == _partDescriptionRuntimeFont) return;
+
+        Material sourceMaterial = textMesh.renderer == null ? null : textMesh.renderer.material;
+        textMesh.font = _partDescriptionRuntimeFont;
+        textMesh.fontSize = 50;
+        if (sourceMaterial != null)
+        {
+            sourceMaterial.mainTexture = _partDescriptionFont.material.mainTexture;
+            textMesh.renderer.material = sourceMaterial;
+        }
+    }
+
+    public static void TickDialogueTextWatcher()
     {
         PatchDialogueData();
+        PatchPartDescriptionData();
         UnityEngine.Object[] objects = Resources.FindObjectsOfTypeAll(typeof(TextMesh));
         for (int i = 0; i < objects.Length; i++)
         {
             TextMesh textMesh = objects[i] as TextMesh;
             if (textMesh == null) continue;
-            if (ContainsChinese(textMesh.text)) ApplyDialogueFont(textMesh);
+            if (ContainsChinese(textMesh.text))
+            {
+                if (IsPartNameText(textMesh.text)) ApplyPartFont(textMesh);
+                else if (IsPartDescriptionText(textMesh.text)) ApplyPartDescriptionFont(textMesh);
+                else ApplyDialogueFont(textMesh);
+            }
             else ApplyLocalizedTextMesh(textMesh, textMesh.text);
         }
     }
@@ -478,6 +589,149 @@ public class ChineseLocalizationPlugin : IModPlugin
         }
         if (result.Count == 0) throw new Exception("No dialogue translations loaded");
         return result;
+    }
+
+    private static void LoadPartTranslations(string path)
+    {
+        _partNameTranslations = new Dictionary<string, string>();
+        _partDescriptionTranslations = new Dictionary<string, string>();
+        _localizedPartNames = new Dictionary<string, bool>();
+        _localizedPartDescriptions = new Dictionary<string, bool>();
+        foreach (string line in File.ReadAllLines(path))
+        {
+            string[] p = line.Split(new char[] { '\t' }, 3);
+            if (p.Length != 3 || p[0] == "kind") continue;
+            Dictionary<string, string> target = p[0] == "name" ? _partNameTranslations : _partDescriptionTranslations;
+            string localized = p[2].Replace("\\n", "\n");
+            if (p[0] == "description") localized = WrapPartDescription(localized);
+            target[NormalizePartText(p[1].Replace("\\n", "\n"))] = localized;
+            if (p[0] == "name") _localizedPartNames[localized] = true;
+            else _localizedPartDescriptions[localized] = true;
+        }
+    }
+
+    // Names and collection lists use ACKNOWTT.  Descriptions deliberately do
+    // not pass this test: the original game renders them with Visitor.
+    private static bool IsPartNameText(string text)
+    {
+        if (text == null || _localizedPartNames == null)
+            return false;
+        string normalized = NormalizePartText(text);
+        if (_localizedPartNames.ContainsKey(normalized))
+            return true;
+        string[] lines = normalized.Split('\n');
+        for (int i = 0; i < lines.Length; i++)
+            if (_localizedPartNames.ContainsKey(lines[i])) return true;
+        return false;
+    }
+
+    private static bool IsPartDescriptionText(string text)
+    {
+        if (text == null || _localizedPartDescriptions == null) return false;
+        string normalized = NormalizePartText(text);
+        if (_localizedPartDescriptions.ContainsKey(normalized)) return true;
+        foreach (string description in _localizedPartDescriptions.Keys)
+            if (normalized.EndsWith(description, StringComparison.Ordinal)) return true;
+        return false;
+    }
+
+    private static bool TryTranslatePartText(string text, out string translated)
+    {
+        translated = null;
+        if (text == null || _partNameTranslations == null || _partDescriptionTranslations == null)
+            return false;
+        string normalized = NormalizePartText(text);
+        if (_partNameTranslations.TryGetValue(normalized, out translated)) return true;
+        if (_partDescriptionTranslations.TryGetValue(normalized, out translated)) return true;
+        foreach (KeyValuePair<string, string> item in _partDescriptionTranslations)
+        {
+            if (!normalized.EndsWith(item.Key, StringComparison.Ordinal)) continue;
+            translated = normalized.Substring(0, normalized.Length - item.Key.Length) + item.Value;
+            return true;
+        }
+        return false;
+    }
+
+    private static string NormalizePartText(string text)
+    {
+        if (text == null) return string.Empty;
+        return text.Replace("\r\n", "\n").Replace("\r", "\n").TrimEnd();
+    }
+
+    private static string WrapPartDescription(string text)
+    {
+        string source = NormalizePartText(text).Replace("\n", string.Empty);
+        StringBuilder result = new StringBuilder();
+        float lineWidth = 0f;
+        int index = 0;
+        while (index < source.Length)
+        {
+            string token = NextPartToken(source, ref index);
+            if (token.Length == 0) continue;
+            if (token == " ")
+            {
+                if (lineWidth > 0f) { result.Append(token); lineWidth += 0.35f; }
+                continue;
+            }
+
+            float tokenWidth = MeasurePartToken(token);
+            if (lineWidth > 0f && lineWidth + tokenWidth > PartDescriptionLineWidth)
+            {
+                while (result.Length > 0 && result[result.Length - 1] == ' ') result.Length--;
+                result.Append('\n');
+                lineWidth = 0f;
+            }
+            result.Append(token);
+            lineWidth += tokenWidth;
+        }
+        return result.ToString();
+    }
+
+    private static string NextPartToken(string text, ref int index)
+    {
+        char first = text[index++];
+        if (first == ' ') return " ";
+        if (first > 126) return first.ToString();
+
+        int start = index - 1;
+        while (index < text.Length)
+        {
+            char next = text[index];
+            if (next > 126 || next == ' ') break;
+            index++;
+        }
+        return text.Substring(start, index - start);
+    }
+
+    private static float MeasurePartToken(string token)
+    {
+        float result = 0f;
+        for (int i = 0; i < token.Length; i++)
+        {
+            char character = token[i];
+            if (character > 126) result += 1f;
+            else if (character == ' ') result += 0.35f;
+            else result += 0.65f;
+        }
+        return result;
+    }
+
+    private static void PatchPartDescriptionData()
+    {
+        Type type = FindLoadedType("GameHandler");
+        PropertyInfo instance = type == null ? null : type.GetProperty("Instance", BindingFlags.Public | BindingFlags.Static);
+        object handler = instance == null ? null : instance.GetValue(null, null);
+        FieldInfo field = type == null ? null : type.GetField("partDescriptionData", BindingFlags.Public | BindingFlags.Instance);
+        object data = handler == null || field == null ? null : field.GetValue(handler);
+        if (data == null) return;
+        string[] names = data.GetType().GetField("names").GetValue(data) as string[];
+        string[] descriptions = data.GetType().GetField("descriptions").GetValue(data) as string[];
+        for (int i = 0; i < names.Length; i++)
+        {
+            string v;
+            if (_partNameTranslations.TryGetValue(NormalizePartText(names[i]), out v)) names[i] = v;
+            if (i < descriptions.Length && _partDescriptionTranslations.TryGetValue(NormalizePartText(descriptions[i]), out v)) descriptions[i] = v;
+        }
     }
 
     private static bool ContainsChinese(string text)

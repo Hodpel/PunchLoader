@@ -38,9 +38,14 @@ Copy-Item "$modSource\font_atlas.png" "$modTarget\font_atlas.png" -Force
 Copy-Item "$modSource\glyphs.tsv" "$modTarget\glyphs.tsv" -Force
 Copy-Item "$modSource\font_atlas_small.png" "$modTarget\font_atlas_small.png" -Force
 Copy-Item "$modSource\glyphs_small.tsv" "$modTarget\glyphs_small.tsv" -Force
+Copy-Item "$modSource\part_font_atlas.png" "$modTarget\part_font_atlas.png" -Force
+Copy-Item "$modSource\part_glyphs.tsv" "$modTarget\part_glyphs.tsv" -Force
+Copy-Item "$modSource\part_description_font_atlas.png" "$modTarget\part_description_font_atlas.png" -Force
+Copy-Item "$modSource\part_description_glyphs.tsv" "$modTarget\part_description_glyphs.tsv" -Force
 Copy-Item "$modSource\dialogue_font_atlas.png" "$modTarget\dialogue_font_atlas.png" -Force
 Copy-Item "$modSource\dialogue_glyphs.tsv" "$modTarget\dialogue_glyphs.tsv" -Force
 Copy-Item "$modSource\dialogue_translations.tsv" "$modTarget\dialogue_translations.tsv" -Force
+Copy-Item "$modSource\part_translations.tsv" "$modTarget\part_translations.tsv" -Force
 
 Copy-Item "$modSource\FONT_LICENSE.txt" "$modTarget\FONT_LICENSE.txt" -Force
 Copy-Item "$modSource\FONT_NOTICE.md" "$modTarget\FONT_NOTICE.md" -Force

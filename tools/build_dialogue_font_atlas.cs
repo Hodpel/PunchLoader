@@ -8,7 +8,7 @@ using System.Drawing.Imaging;
 using System.Drawing.Text;
 using System.Drawing.Drawing2D;
 
-// Builds the dialogue proof's static mixed font.
+// Builds a Visitor-based mixed TextMesh font for dialogue or long part descriptions.
 // ASCII is rasterized from Visitor TT2 BRK (the visitor2 face) at its native 50px
 // source size; Chinese is BoutiqueBitmap 9x9 Bold, rasterized at the dialogue target height.
 class BuildDialogueFontAtlas
@@ -87,9 +87,12 @@ class BuildDialogueFontAtlas
         string visitorTtf = Combine(root, "tools", "fonts", "VisitorTT2BRK.ttf");
         string boutiqueTtf = Combine(root, "tools", "fonts", "BoutiqueBitmap9x9_Bold_1.93.ttf");
         string outputDir = Combine(root, "mods", "ChineseLocalization");
-        string dialogueTranslations = Combine(outputDir, "dialogue_translations.tsv");
-        if (!File.Exists(visitorAsset) || !File.Exists(visitorTtf) || !File.Exists(boutiqueTtf) || !File.Exists(dialogueTranslations))
-            throw new FileNotFoundException("visitor2 metrics or dialogue font source is missing");
+        bool partDescriptions = args.Length > 1 && args[1] == "part";
+        string translations = Combine(outputDir,
+            partDescriptions ? "part_translations.tsv" : "dialogue_translations.tsv");
+        if (!File.Exists(visitorAsset) || !File.Exists(visitorTtf) || !File.Exists(boutiqueTtf) ||
+            !File.Exists(translations))
+            throw new FileNotFoundException("visitor2 metrics or localization font source is missing");
 
         List<Glyph> glyphs = ReadVisitorMetrics(visitorAsset);
         PrivateFontCollection collection = new PrivateFontCollection();
@@ -101,7 +104,7 @@ class BuildDialogueFontAtlas
         using (Font boutique = new Font(boutiqueFamily, 23, FontStyle.Bold, GraphicsUnit.Pixel))
         {
             foreach (Glyph glyph in glyphs) glyph.Image = RasterGlyph(visitor, (char)glyph.Code);
-            string chinese = File.ReadAllText(dialogueTranslations, Encoding.UTF8);
+            string chinese = File.ReadAllText(translations, Encoding.UTF8);
             HashSet<char> emitted = new HashSet<char>();
             foreach (char character in chinese)
             {
@@ -125,9 +128,12 @@ class BuildDialogueFontAtlas
         const int padding = 2;
         int cellWidth = maxWidth + padding * 2;
         int cellHeight = maxHeight + padding * 2;
-        const int columns = 16;
+        // The complete part catalogue adds nearly a thousand CJK glyphs.  A
+        // 1024-wide atlas keeps the texture below Unity's conservative 2048px
+        // height limit while retaining a small 2px cell gutter.
+        const int columns = 32;
         int rows = (glyphs.Count + columns - 1) / columns;
-        int atlasWidth = 512, atlasHeight = 2048;
+        int atlasWidth = 1024, atlasHeight = 2048;
         if (columns * cellWidth > atlasWidth || rows * cellHeight > atlasHeight) throw new Exception("Dialogue atlas exceeds 512x2048px");
 
         Bitmap atlas = new Bitmap(atlasWidth, atlasHeight, PixelFormat.Format32bppArgb);
@@ -143,8 +149,10 @@ class BuildDialogueFontAtlas
             }
         }
 
-        string png = Path.Combine(outputDir, "dialogue_font_atlas.png");
-        string map = Path.Combine(outputDir, "dialogue_glyphs.tsv");
+        string png = Path.Combine(outputDir,
+            partDescriptions ? "part_description_font_atlas.png" : "dialogue_font_atlas.png");
+        string map = Path.Combine(outputDir,
+            partDescriptions ? "part_description_glyphs.tsv" : "dialogue_glyphs.tsv");
         atlas.Save(png, ImageFormat.Png);
         using (StreamWriter writer = new StreamWriter(map, false, new UTF8Encoding(true)))
         {
@@ -154,7 +162,8 @@ class BuildDialogueFontAtlas
         }
         foreach (Glyph glyph in glyphs) glyph.Image.Dispose();
         atlas.Dispose();
-        Console.WriteLine("[DialogueAtlas] Wrote " + png + " and " + map + " (" + glyphs.Count + " glyphs; raster visitor2 ASCII + BoutiqueBitmap Bold CJK)");
+        Console.WriteLine("[VisitorAtlas] Wrote " + png + " and " + map + " (" + glyphs.Count +
+            " glyphs; " + (partDescriptions ? "part descriptions" : "dialogue") + ")");
     }
 }
 

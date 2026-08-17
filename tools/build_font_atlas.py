@@ -21,10 +21,13 @@ ROOT = Path(__file__).resolve().parent.parent
 MOD = ROOT / "mods" / "ChineseLocalization"
 FONT = ROOT / "tools" / "fonts" / "BoutiqueBitmap9x9_Bold_1.93.ttf"
 TRANSLATIONS = MOD / "translations.tsv"
+PART_TRANSLATIONS = MOD / "part_translations.tsv"
 PNG = MOD / "font_atlas.png"
 MAP = MOD / "glyphs.tsv"
 SMALL_PNG = MOD / "font_atlas_small.png"
 SMALL_MAP = MOD / "glyphs_small.tsv"
+PART_PNG = MOD / "part_font_atlas.png"
+PART_MAP = MOD / "part_glyphs.tsv"
 
 # Unity uses the Font fontSize as the default GUI line-height basis.  Preserve
 # ACKNOWTT's original 50px font size / 44.5px line spacing so GUILayout retains
@@ -66,6 +69,18 @@ def read_targets():
         if not source or not target:
             raise ValueError("invalid translation row: " + line)
         targets.append(target)
+    return targets
+
+
+def read_part_targets():
+    targets = []
+    for line in PART_TRANSLATIONS.read_text(encoding="utf-8-sig").splitlines():
+        if not line:
+            continue
+        fields = line.split("\t", 2)
+        if len(fields) != 3 or fields[0] == "kind":
+            continue
+        targets.append(fields[2].replace("\\n", "\n"))
     return targets
 
 
@@ -163,12 +178,12 @@ def choose_layout(glyphs):
     return best
 
 
-def build_variant(ack, raster_size, target_height, font_size, cap_y, png_path, map_path):
+def build_variant(ack, targets, raster_size, target_height, font_size, cap_y, png_path, map_path):
     boutique = ImageFont.truetype(str(FONT), raster_size)
     glyphs = []
     for char in sorted(ack):
         glyphs.append((char,) + ack[char])
-    for char in collect_characters(read_targets()):
+    for char in collect_characters(targets):
         glyphs.append((char,) + boutique_glyph(boutique, char, cap_y, raster_size, target_height))
 
     _, columns, atlas_width, atlas_height, cell_width, cell_height = choose_layout(glyphs)
@@ -200,12 +215,20 @@ def build(args):
         if not path.exists():
             raise FileNotFoundError("ACKNOWTT source asset or texture is missing: " + str(path))
 
-    build_variant(parse_ack_glyphs(args.ack_font, args.ack_texture),
+    menu_targets = read_targets()
+    part_targets = read_part_targets()
+    ack = parse_ack_glyphs(args.ack_font, args.ack_texture)
+    build_variant(ack, menu_targets,
                   BOUTIQUE_RASTER_SIZE, BOUTIQUE_TARGET_HEIGHT, FONT_SIZE, ACK_CAP_Y, PNG, MAP)
-    build_variant(parse_ack_glyphs(args.ack_small_font, args.ack_small_texture),
+    build_variant(parse_ack_glyphs(args.ack_small_font, args.ack_small_texture), menu_targets,
                   SMALL_BOUTIQUE_RASTER_SIZE, SMALL_BOUTIQUE_TARGET_HEIGHT,
                   SMALL_FONT_SIZE, SMALL_ACK_CAP_Y,
                   SMALL_PNG, SMALL_MAP)
+    # The inventory and collection use the same 50px ACKNOWTT face as menus,
+    # but need the complete 150-part vocabulary rather than menu labels.
+    build_variant(ack, part_targets,
+                  BOUTIQUE_RASTER_SIZE, BOUTIQUE_TARGET_HEIGHT, FONT_SIZE, ACK_CAP_Y,
+                  PART_PNG, PART_MAP)
 
 
 if __name__ == "__main__":
