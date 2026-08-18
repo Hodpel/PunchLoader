@@ -410,6 +410,11 @@ public class ChineseLocalizationPlugin : IModPlugin
             QueueBottomPrompt(textMesh, translated, GetBottomPromptKind(originalText));
             return true;
         }
+        else if (TryTranslateRepositoryText(textMesh, originalText, out translated))
+        {
+            ApplyPartFont(textMesh);
+            ApplyBuildsRepositoryTextLayout(textMesh, translated);
+        }
         else if (TryTranslateDialogueProof(originalText, out translated))
             ApplyDialogueFont(textMesh);
         else if (TryTranslatePartText(originalText, out translated))
@@ -534,6 +539,142 @@ public class ChineseLocalizationPlugin : IModPlugin
         return rootName.IndexOf("CollectionGUI", StringComparison.OrdinalIgnoreCase) >= 0 ||
             rootName.IndexOf("ColorGUI", StringComparison.OrdinalIgnoreCase) >= 0 ||
             rootName.IndexOf("BuildsGUI", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    // Color and Builds construct their list text one line at a time through
+    // TextMesh.set_text.  Translate each line independently so an already
+    // localized earlier line does not prevent a later English line from being
+    // recognized.  These labels deliberately use the parts font: their source
+    // TextMeshes share the same ACKNOWTT repository presentation.
+    private static bool TryTranslateRepositoryText(TextMesh textMesh, string text,
+        out string translated)
+    {
+        translated = null;
+        if (text == null || _translations == null) return false;
+        if (!IsRepositoryTextMesh(textMesh) &&
+            !string.Equals(text, "Set Loaded!", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(text, "Set Saved!", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        // ColorGUI and BuildsGUI append one item plus a trailing newline on
+        // every setter call. Do not use NormalizePartText here: its TrimEnd()
+        // would remove that separator and concatenate the next English item.
+        string normalized = NormalizeRepositoryText(text);
+        string[] lines = normalized.Split('\n');
+        StringBuilder result = new StringBuilder();
+        bool replaced = false;
+        for (int i = 0; i < lines.Length; i++)
+        {
+            string line = lines[i];
+            string localized;
+            if (TryTranslateBuildSlot(line, out localized) ||
+                _translations.TryGetValue(line, out localized))
+            {
+                result.Append(localized);
+                if (!string.Equals(line, localized, StringComparison.Ordinal)) replaced = true;
+            }
+            else result.Append(line);
+            if (i < lines.Length - 1) result.Append('\n');
+        }
+        if (!replaced) return false;
+        translated = result.ToString();
+        return true;
+    }
+
+    private static bool IsRepositoryTextMesh(TextMesh textMesh)
+    {
+        if (textMesh == null || textMesh.transform == null) return false;
+        Transform root = textMesh.transform.root;
+        if (root == null || root.gameObject == null) return false;
+        string rootName = root.gameObject.name;
+        return rootName.IndexOf("ColorGUI", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            rootName.IndexOf("BuildsGUI", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    private static bool TryTranslateBuildSlot(string text, out string translated)
+    {
+        translated = null;
+        if (text == null || !text.StartsWith("Set ", StringComparison.OrdinalIgnoreCase))
+            return false;
+        string number = text.Substring(4);
+        if (number.Length == 0) return false;
+        for (int i = 0; i < number.Length; i++)
+            if (number[i] < '0' || number[i] > '9') return false;
+        translated = "配装" + MixedTextSpace + number;
+        return true;
+    }
+
+    private static string NormalizeRepositoryText(string text)
+    {
+        if (text == null) return string.Empty;
+        return text.Replace("\r\n", "\n").Replace("\r", "\n");
+    }
+
+    private static bool IsRepositoryStatusText(string text)
+    {
+        return string.Equals(NormalizePartText(text), "配装已读取!", StringComparison.Ordinal) ||
+            string.Equals(NormalizePartText(text), "配装已保存!", StringComparison.Ordinal);
+    }
+
+    // These two Builds-only overlays use a smaller original ACKNOWTT mesh than
+    // the repository names.  1.235 is the measured 17px -> 21px correction,
+    // preserving the project-wide rule that Chinese is 4px taller than its
+    // English source.  Positions are in each overlay panel's local space;
+    // assigning, rather than adding, keeps repeated TextMesh updates stable.
+    private const float BuildsLoadSaveCharacterSize = 1.235f;
+    private const float BuildsLoadSaveLineSpacing = 1.1f;
+    private const float BuildsLoadSaveLocalOffsetX = -0.002f;
+    private const float BuildsLoadSaveLocalOffsetY = 0.217f;
+
+    private const float BuildsStatusCharacterSize = 1.526f;
+    private const float BuildsStatusLocalOffsetX = -0.004f;
+    private const float BuildsStatusLocalOffsetY = 0.125f;
+
+    private static void ApplyBuildsRepositoryTextLayout(TextMesh textMesh, string text)
+    {
+        if (textMesh == null) return;
+        bool isLoadSave = IsBuildsLoadSaveText(text);
+        bool isStatus = IsRepositoryStatusText(text);
+        if (!isLoadSave && !isStatus) return;
+
+        textMesh.anchor = TextAnchor.MiddleCenter;
+        textMesh.alignment = TextAlignment.Center;
+        textMesh.characterSize = isLoadSave ? BuildsLoadSaveCharacterSize :
+            BuildsStatusCharacterSize;
+
+        // The shadow is a child of the white TextMesh and follows its parent.
+        if (isLoadSave)
+            textMesh.lineSpacing = BuildsLoadSaveLineSpacing;
+
+        if (textMesh.gameObject.name.EndsWith("Shadow", StringComparison.OrdinalIgnoreCase)) return;
+        Vector3 local = textMesh.transform.localPosition;
+        if (isLoadSave)
+        {
+            // textMesh.lineSpacing = BuildsLoadSaveLineSpacing;
+            local.x = BuildsLoadSaveLocalOffsetX;
+            local.y = BuildsLoadSaveLocalOffsetY;
+        }
+        else
+        {
+            local.x = BuildsStatusLocalOffsetX;
+            local.y = BuildsStatusLocalOffsetY;
+        }
+        textMesh.transform.localPosition = local;
+    }
+
+    private static bool IsBuildsLoadSaveText(string text)
+    {
+    string normalized = NormalizeRepositoryText(text);
+    if (string.Equals(normalized, "Load\nSave\nCancel",
+        StringComparison.OrdinalIgnoreCase))
+        return true;
+
+    string compact = normalized
+        .Replace(MixedTextSpace.ToString(), string.Empty)
+        .Replace(" ", string.Empty);
+
+    return string.Equals(compact, "读取\n保存\n取消",
+        StringComparison.Ordinal);
     }
 
     private static void ApplyInventoryWheelPromptSize(TextMesh textMesh, int kind)
@@ -749,7 +890,12 @@ public class ChineseLocalizationPlugin : IModPlugin
             if (ContainsChinese(textMesh.text))
             {
                 if (IsBottomPromptText(textMesh.text)) ApplyMenuTextMeshFont(textMesh);
-                else if (IsPartNameText(textMesh.text)) ApplyPartFont(textMesh);
+                else if (IsRepositoryTextMesh(textMesh) || IsRepositoryStatusText(textMesh.text) ||
+                    IsPartNameText(textMesh.text))
+                {
+                    ApplyPartFont(textMesh);
+                    ApplyBuildsRepositoryTextLayout(textMesh, textMesh.text);
+                }
                 else if (IsPartDescriptionText(textMesh.text) || IsAbilityDescriptionText(textMesh.text))
                     ApplyPartDescriptionFont(textMesh);
                 else ApplyDialogueFont(textMesh);
@@ -1195,10 +1341,6 @@ public class ChineseDialogueTextWatcher : MonoBehaviour
         ChineseLocalizationPlugin.TickDialogueTextWatcher();
     }
 }
-
-
-
-
 
 
 

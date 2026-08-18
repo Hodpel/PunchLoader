@@ -230,7 +230,9 @@ def build(args):
             raise FileNotFoundError("ACKNOWTT source asset or texture is missing: " + str(path))
 
     menu_targets = read_targets()
-    part_targets = read_part_targets()
+    # Repository labels share the parts TextMesh font at runtime, so its atlas
+    # must include their CJK glyphs in addition to equipment names.
+    part_targets = read_part_targets() + menu_targets
     ack = parse_ack_glyphs(args.ack_font, args.ack_texture)
     build_variant(ack, menu_targets,
                   BOUTIQUE_RASTER_SIZE, BOUTIQUE_TARGET_HEIGHT, FONT_SIZE, ACK_CAP_Y, PNG, MAP)
