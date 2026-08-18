@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -18,6 +19,7 @@ public class ChineseLocalizationPlugin : IModPlugin
     private static Font _dialogueFont;
     private static Font _partFont;
     private static Font _partDescriptionFont;
+    private static Font _menuTextMeshRuntimeFont;
     private static Dictionary<string, string> _dialogueTranslations;
     private static Dictionary<string, string> _partNameTranslations;
     private static Dictionary<string, string> _partDescriptionTranslations;
@@ -26,12 +28,12 @@ public class ChineseLocalizationPlugin : IModPlugin
     private static Dictionary<string, bool> _localizedPartNames;
     private static Dictionary<string, bool> _localizedPartDescriptions;
     private static Dictionary<string, bool> _localizedAbilityDescriptions;
+    private static Dictionary<TextMesh, bool> _pendingBottomPrompts;
     private static Font _dialogueRuntimeFont;
     private static Font _partRuntimeFont;
     private static Font _partDescriptionRuntimeFont;
     private static ChineseDialogueTextWatcher _dialogueTextWatcher;
     private static bool _dialogueDataPatched;
-    private static bool _dialogueFontTraceLogged;
     private static Dictionary<GUIStyle, GUIStyle> _layoutStyles;
     private static Dictionary<GUIStyle, GUIStyle> _renderStyles;
     // InputConfigMenuScript builds a 700px-wide local GUILayout area and gives
@@ -93,6 +95,7 @@ public class ChineseLocalizationPlugin : IModPlugin
             _dialogueTranslations = dialogueTranslations;
             _layoutStyles = new Dictionary<GUIStyle, GUIStyle>();
             _renderStyles = new Dictionary<GUIStyle, GUIStyle>();
+            _pendingBottomPrompts = new Dictionary<TextMesh, bool>();
             HookManager.Register(new TextTransformHandler(Translate));
             HookManager.Register(new GUILayoutLabelHandler(DrawLocalizedLabel));
             HookManager.Register(new TextMeshTextHandler(DrawLocalizedTextMesh));
@@ -133,13 +136,18 @@ public class ChineseLocalizationPlugin : IModPlugin
             UnityEngine.Object.Destroy(_partDescriptionRuntimeFont);
             _partDescriptionRuntimeFont = null;
         }
+        if (_menuTextMeshRuntimeFont != null)
+        {
+            UnityEngine.Object.Destroy(_menuTextMeshRuntimeFont);
+            _menuTextMeshRuntimeFont = null;
+        }
         }
         if (_layoutStyles != null) _layoutStyles.Clear();
         if (_renderStyles != null) _renderStyles.Clear();
         _dialogueDataPatched = false;
-        _dialogueFontTraceLogged = false;
         _abilityTranslations = null;
         if (_localizedAbilityDescriptions != null) _localizedAbilityDescriptions.Clear();
+        if (_pendingBottomPrompts != null) _pendingBottomPrompts.Clear();
         _registered = false;
     }
 
@@ -158,7 +166,8 @@ public class ChineseLocalizationPlugin : IModPlugin
                 int tab = line.IndexOf('\t');
                 if (tab <= 0 || tab == line.Length - 1)
                     throw new Exception("Invalid translation row " + lineNumber);
-                result[line.Substring(0, tab)] = line.Substring(tab + 1);
+                result[line.Substring(0, tab).Replace("\\n", "\n")] =
+                    line.Substring(tab + 1).Replace("\\n", "\n");
             }
         }
         return result;
@@ -277,6 +286,8 @@ public class ChineseLocalizationPlugin : IModPlugin
         if (text == null || _translations == null) return text;
         string translated;
         if (_translations.TryGetValue(text, out translated)) return translated;
+        string normalizedLineBreaks = NormalizePartText(text);
+        if (_translations.TryGetValue(normalizedLineBreaks, out translated)) return translated;
         if (TryTranslateInputBinding(text, out translated)) return translated;
 
         // Dynamic labels are assembled by the original game; translate their stable prefixes.
@@ -394,15 +405,248 @@ public class ChineseLocalizationPlugin : IModPlugin
         if (textMesh == null || _dialogueFont == null) return false;
 
         string translated;
-        if (TryTranslateDialogueProof(originalText, out translated))
+        if (TryTranslateBottomPrompt(originalText, out translated))
+        {
+            QueueBottomPrompt(textMesh, translated, GetBottomPromptKind(originalText));
+            return true;
+        }
+        else if (TryTranslateDialogueProof(originalText, out translated))
             ApplyDialogueFont(textMesh);
         else if (TryTranslatePartText(originalText, out translated))
             ApplyPartDescriptionFont(textMesh);
         else
             return false;
         textMesh.text = translated;
-        Debug.Log("[ChineseLocalization] Replaced localized TextMesh: " + textMesh.gameObject.name);
         return true;
+    }
+
+    private static void QueueBottomPrompt(TextMesh textMesh, string translated, int collectionPromptKind)
+    {
+        if (textMesh == null) return;
+        if (_dialogueTextWatcher == null)
+        {
+            ApplyMenuTextMeshFont(textMesh);
+            textMesh.text = translated;
+            return;
+        }
+        if (_pendingBottomPrompts != null && _pendingBottomPrompts.ContainsKey(textMesh)) return;
+        if (_pendingBottomPrompts != null) _pendingBottomPrompts[textMesh] = true;
+        Color sourceColor = textMesh.color;
+        Color transparentColor = sourceColor;
+        transparentColor.a = 0f;
+        // Renderer.enabled prevents Unity 4.2 from building this TextMesh's
+        // geometry. Keep it enabled and hide only its vertex colour, so the
+        // source bounds exist at the end of the frame without an English flash.
+        textMesh.color = transparentColor;
+        _dialogueTextWatcher.StartBottomPromptLayout(textMesh, translated, collectionPromptKind, sourceColor);
+    }
+
+    // Unity 4.2 reports an empty Renderer.bounds for serialized TextMesh
+    // objects even while they are visibly rendered.  The prompt background is
+    // an ordinary MeshRenderer, though, so its centre is a reliable layout
+    // reference.  The text colour remains transparent throughout, so no
+    // English frame is visible.
+    public static IEnumerator LayoutBottomPrompt(TextMesh textMesh, string translated,
+        int collectionPromptKind, Color sourceColor)
+    {
+        yield return new WaitForEndOfFrame();
+        if (_pendingBottomPrompts != null) _pendingBottomPrompts.Remove(textMesh);
+        if (textMesh == null) yield break;
+
+        ApplyMenuTextMeshFont(textMesh);
+        textMesh.text = translated;
+        CenterRepositoryPrompt(textMesh, collectionPromptKind);
+        ApplyInventoryWheelPromptSize(textMesh, collectionPromptKind);
+        OffsetInventoryWheelPromptLocal(textMesh, collectionPromptKind);
+        textMesh.color = sourceColor;
+    }
+
+    // Parts, Color and Builds share the same prompt prefab geometry.  Their
+    // buttons have enough room for the menu's large 23px CJK face when the
+    // original two lines collapse to one.  The TextMesh scale makes a 23px
+    // glyph appear at about 17px on screen, hence this measured 23 / 17
+    // correction.  InventoryWheel uses different button artwork.
+    private const float CollectionPromptCharacterSize = 1.35f;
+    // The uploaded 192x64 capture is displayed at about 40% of the game's
+    // native screen size.  The first correction therefore moved only 12px / 4px
+    // in that capture.  These native-pixel values include the remaining
+    // calibrated 18.5px-left / 4.5px-up visual adjustment.
+    private const float CollectionPromptScreenOffsetX = -76.5f;
+    private const float CollectionPromptScreenOffsetY = 19f;
+    // The inventory wheel's current localized caption is about 17px high.
+    // Scale it to the requested 21px without affecting its prefab position.
+    private const float InventoryWheelPromptCharacterSize = 1.235f;
+    // InventoryWheel is laid out in the direct parent panel's 0..1 local space.
+    // These are measured visual-centering deltas, not camera/screen offsets.
+    private const float InventoryConfirmLocalOffsetX = -0.017f;
+    private const float InventoryConfirmLocalOffsetY = -0.0888f;
+
+    private const float InventoryBackLocalOffsetX = 0.062f;
+    private const float InventoryBackLocalOffsetY = -0.1089f;
+
+    // Kind 1: Punch / pick. Kind 2: Special / return.
+    private static void CenterRepositoryPrompt(TextMesh textMesh, int kind)
+    {
+        if (textMesh == null || kind == 0 || !IsRepositoryPrompt(textMesh)) return;
+        textMesh.anchor = TextAnchor.MiddleCenter;
+        textMesh.alignment = TextAlignment.Center;
+        textMesh.characterSize = CollectionPromptCharacterSize;
+
+        // The shadow is a child of the white TextMesh.  Centering its parent
+        // moves both together; retain the serialized child offset for the
+        // original pixel-shadow effect.
+        if (textMesh.gameObject.name.EndsWith("Shadow", StringComparison.OrdinalIgnoreCase)) return;
+
+        Transform button = textMesh.transform.parent;
+        Renderer buttonRenderer = button == null ? null :
+            button.GetComponent(typeof(Renderer)) as Renderer;
+        Camera camera = FindContainingGuiCamera(textMesh.transform);
+        if (buttonRenderer == null || camera == null)
+        {
+            Debug.LogWarning("[ChineseLocalization] Repository prompt layout reference unavailable: " +
+                textMesh.gameObject.name);
+            return;
+        }
+
+        Bounds buttonBounds = buttonRenderer.bounds;
+        if (buttonBounds.size.sqrMagnitude <= 0.0001f)
+        {
+            Debug.LogWarning("[ChineseLocalization] Repository prompt panel bounds unavailable: " +
+                textMesh.gameObject.name);
+            return;
+        }
+
+        Vector3 pivot = textMesh.transform.position;
+        Vector3 panelScreen = camera.WorldToScreenPoint(buttonBounds.center);
+        Vector3 pivotScreen = camera.WorldToScreenPoint(pivot);
+        if (panelScreen.z <= 0f || pivotScreen.z <= 0f) return;
+        panelScreen.x += CollectionPromptScreenOffsetX;
+        panelScreen.y += CollectionPromptScreenOffsetY;
+        panelScreen.z = pivotScreen.z;
+        textMesh.transform.position = camera.ScreenToWorldPoint(panelScreen);
+    }
+
+    private static bool IsRepositoryPrompt(TextMesh textMesh)
+    {
+        Transform root = textMesh.transform == null ? null : textMesh.transform.root;
+        if (root == null || root.gameObject == null) return false;
+        string rootName = root.gameObject.name;
+        return rootName.IndexOf("CollectionGUI", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            rootName.IndexOf("ColorGUI", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            rootName.IndexOf("BuildsGUI", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    private static void ApplyInventoryWheelPromptSize(TextMesh textMesh, int kind)
+    {
+        if (textMesh == null || (kind != 3 && kind != 4)) return;
+        Transform root = textMesh.transform == null ? null : textMesh.transform.root;
+        if (root == null || root.gameObject == null ||
+            root.gameObject.name.IndexOf("InventoryWheel", StringComparison.OrdinalIgnoreCase) < 0)
+            return;
+        textMesh.characterSize = InventoryWheelPromptCharacterSize;
+    }
+
+    private static void OffsetInventoryWheelPromptLocal(TextMesh textMesh, int kind)
+    {
+        if (textMesh == null || (kind != 3 && kind != 4)) return;
+        Transform root = textMesh.transform == null ? null : textMesh.transform.root;
+        if (root == null || root.gameObject == null ||
+            root.gameObject.name.IndexOf("InventoryWheel", StringComparison.OrdinalIgnoreCase) < 0 ||
+            textMesh.gameObject.name.EndsWith("Shadow", StringComparison.OrdinalIgnoreCase))
+            return;
+        Vector3 local = textMesh.transform.localPosition;
+        if (kind == 3)
+        {
+            local.x += InventoryConfirmLocalOffsetX;
+            local.y += InventoryConfirmLocalOffsetY;
+        }
+        else
+        {
+            // The measured left margin is already within one pixel of centre;
+            // only correct the return caption's vertical position for now.
+            local.x += InventoryBackLocalOffsetX;
+            local.y += InventoryBackLocalOffsetY;
+        }
+        textMesh.transform.localPosition = local;
+    }
+
+
+    private static Camera FindContainingGuiCamera(Transform transform)
+    {
+        Transform current = transform;
+        while (current != null)
+        {
+            Camera camera = current.GetComponent(typeof(Camera)) as Camera;
+            if (camera != null && camera.enabled) return camera;
+            current = current.parent;
+        }
+        return null;
+    }
+
+    // The Build, Collection and Color prefabs all use these two TextMesh
+    // prompts (each with a shadow companion). They are serialized with CRLF,
+    // whereas the translation table uses the portable \n spelling.
+    private static bool TryTranslateBottomPrompt(string text, out string translated)
+    {
+        translated = null;
+        if (text == null || _translations == null) return false;
+        string normalized = NormalizePartText(text);
+        if (!string.Equals(normalized, "Punch \n- Pick", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(normalized, "Special \n- Return", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(normalized, "Punch \n- confirm", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(normalized, "Special \n- Back", StringComparison.OrdinalIgnoreCase))
+            return false;
+        return _translations.TryGetValue(normalized, out translated);
+    }
+
+    private static int GetBottomPromptKind(string text)
+    {
+        string normalized = NormalizePartText(text);
+        if (string.Equals(normalized, "Punch \n- Pick", StringComparison.OrdinalIgnoreCase))
+            return 1;
+        if (string.Equals(normalized, "Special \n- Return", StringComparison.OrdinalIgnoreCase))
+            return 2;
+        if (string.Equals(normalized, "Punch \n- confirm", StringComparison.OrdinalIgnoreCase))
+            return 3;
+        if (string.Equals(normalized, "Special \n- Back", StringComparison.OrdinalIgnoreCase))
+            return 4;
+        return 0;
+    }
+
+    private static bool IsBottomPromptText(string text)
+    {
+        string normalized = NormalizePartText(text);
+        return string.Equals(normalized, "攻击" + MixedTextSpace + "-" + MixedTextSpace + "选择",
+                StringComparison.Ordinal) ||
+            string.Equals(normalized, "技能" + MixedTextSpace + "-" + MixedTextSpace + "返回",
+                StringComparison.Ordinal) ||
+            string.Equals(normalized, "攻击" + MixedTextSpace + "-" + MixedTextSpace + "确认",
+                StringComparison.Ordinal);
+    }
+
+    // Bottom prompts use the original bold ACKNOWTT face, not the thinner
+    // Visitor face used by dialogue/description panels.
+    private static void ApplyMenuTextMeshFont(TextMesh textMesh)
+    {
+        if (textMesh == null || _font == null) return;
+        if (_menuTextMeshRuntimeFont == null)
+        {
+            _menuTextMeshRuntimeFont = UnityEngine.Object.Instantiate(textMesh.font) as Font;
+            if (_menuTextMeshRuntimeFont == null) return;
+            _menuTextMeshRuntimeFont.name = "PunchLoader ACKNOWTT + BoutiqueBitmap Bottom Prompts Runtime";
+            typeof(Font).GetProperty("material").SetValue(_menuTextMeshRuntimeFont, _font.material, null);
+            object characters = typeof(Font).GetProperty("characterInfo").GetValue(_font, null);
+            typeof(Font).GetProperty("characterInfo").SetValue(_menuTextMeshRuntimeFont, characters, null);
+        }
+        if (textMesh.font == _menuTextMeshRuntimeFont) return;
+
+        Material sourceMaterial = textMesh.renderer == null ? null : textMesh.renderer.material;
+        textMesh.font = _menuTextMeshRuntimeFont;
+        if (sourceMaterial != null)
+        {
+            sourceMaterial.mainTexture = _font.material.mainTexture;
+            textMesh.renderer.material = sourceMaterial;
+        }
     }
 
     private static void ApplyDialogueFont(TextMesh textMesh)
@@ -438,18 +682,6 @@ public class ChineseLocalizationPlugin : IModPlugin
                 sourceMaterial.mainTexture = _dialogueFont.material.mainTexture;
                 textMesh.renderer.material = sourceMaterial;
             }
-        }
-        if (!_dialogueFontTraceLogged)
-        {
-            CharacterInfo[] infos = (CharacterInfo[])typeof(Font).GetProperty("characterInfo").GetValue(_dialogueRuntimeFont, null);
-            bool hasChineseGlyph = false;
-            for (int i = 0; i < infos.Length; i++)
-                if (infos[i].index == 20320) { hasChineseGlyph = true; break; }
-            _dialogueFontTraceLogged = true;
-            Debug.Log("[ChineseLocalization] Dialogue font trace: object=" + textMesh.gameObject.name +
-                ", assigned=" + textMesh.font.name + ", meshFontSize=" + textMesh.fontSize +
-                ", glyphs=" + infos.Length + ", hasU4F60=" + hasChineseGlyph +
-                ", text=" + textMesh.text);
         }
     }
 
@@ -516,7 +748,8 @@ public class ChineseLocalizationPlugin : IModPlugin
             if (textMesh == null) continue;
             if (ContainsChinese(textMesh.text))
             {
-                if (IsPartNameText(textMesh.text)) ApplyPartFont(textMesh);
+                if (IsBottomPromptText(textMesh.text)) ApplyMenuTextMeshFont(textMesh);
+                else if (IsPartNameText(textMesh.text)) ApplyPartFont(textMesh);
                 else if (IsPartDescriptionText(textMesh.text) || IsAbilityDescriptionText(textMesh.text))
                     ApplyPartDescriptionFont(textMesh);
                 else ApplyDialogueFont(textMesh);
@@ -557,7 +790,6 @@ public class ChineseLocalizationPlugin : IModPlugin
                 if (!TryTranslateDialogueProof(lines[lineIndex], out translated)) continue;
                 lines[lineIndex] = translated;
                 _dialogueDataPatched = true;
-                Debug.Log("[ChineseLocalization] Replaced dialogue data: dialog " + dialogIndex + ", line " + lineIndex);
             }
         }
     }
@@ -951,14 +1183,18 @@ public class ChineseLocalizationPlugin : IModPlugin
 // when adding a component at runtime.
 public class ChineseDialogueTextWatcher : MonoBehaviour
 {
+    public void StartBottomPromptLayout(TextMesh textMesh, string translated, int collectionPromptKind,
+        Color sourceColor)
+    {
+        StartCoroutine(ChineseLocalizationPlugin.LayoutBottomPrompt(textMesh, translated,
+            collectionPromptKind, sourceColor));
+    }
+
     private void Update()
     {
         ChineseLocalizationPlugin.TickDialogueTextWatcher();
     }
 }
-
-
-
 
 
 
