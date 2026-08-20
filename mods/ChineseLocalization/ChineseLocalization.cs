@@ -29,6 +29,7 @@ public class ChineseLocalizationPlugin : IModPlugin
     private static Dictionary<string, bool> _localizedPartDescriptions;
     private static Dictionary<string, bool> _localizedAbilityDescriptions;
     private static Dictionary<TextMesh, bool> _pendingBottomPrompts;
+    private static Dictionary<TextMesh, Vector3> _inventoryWheelTitleBasePositions;
     private static Font _dialogueRuntimeFont;
     private static Font _partRuntimeFont;
     private static Font _partDescriptionRuntimeFont;
@@ -96,6 +97,7 @@ public class ChineseLocalizationPlugin : IModPlugin
             _layoutStyles = new Dictionary<GUIStyle, GUIStyle>();
             _renderStyles = new Dictionary<GUIStyle, GUIStyle>();
             _pendingBottomPrompts = new Dictionary<TextMesh, bool>();
+            _inventoryWheelTitleBasePositions = new Dictionary<TextMesh, Vector3>();
             HookManager.Register(new TextTransformHandler(Translate));
             HookManager.Register(new GUILayoutLabelHandler(DrawLocalizedLabel));
             HookManager.Register(new TextMeshTextHandler(DrawLocalizedTextMesh));
@@ -148,6 +150,7 @@ public class ChineseLocalizationPlugin : IModPlugin
         _abilityTranslations = null;
         if (_localizedAbilityDescriptions != null) _localizedAbilityDescriptions.Clear();
         if (_pendingBottomPrompts != null) _pendingBottomPrompts.Clear();
+        if (_inventoryWheelTitleBasePositions != null) _inventoryWheelTitleBasePositions.Clear();
         _registered = false;
     }
 
@@ -415,6 +418,11 @@ public class ChineseLocalizationPlugin : IModPlugin
             ApplyPartFont(textMesh);
             ApplyBuildsRepositoryTextLayout(textMesh, translated);
         }
+        else if (TryTranslateInventoryWheelTitle(textMesh, originalText, out translated))
+        {
+            ApplyPartFont(textMesh);
+            ApplyInventoryWheelTitleLayout(textMesh);
+        }
         else if (TryTranslateDialogueProof(originalText, out translated))
             ApplyDialogueFont(textMesh);
         else if (TryTranslatePartText(originalText, out translated))
@@ -551,15 +559,14 @@ public class ChineseLocalizationPlugin : IModPlugin
     {
         translated = null;
         if (text == null || _translations == null) return false;
-        if (!IsRepositoryTextMesh(textMesh) &&
-            !string.Equals(text, "Set Loaded!", StringComparison.OrdinalIgnoreCase) &&
-            !string.Equals(text, "Set Saved!", StringComparison.OrdinalIgnoreCase))
+        if (!IsRepositoryTextMesh(textMesh) && !IsRepositoryStatusSourceText(text))
             return false;
 
         // ColorGUI and BuildsGUI append one item plus a trailing newline on
         // every setter call. Do not use NormalizePartText here: its TrimEnd()
         // would remove that separator and concatenate the next English item.
         string normalized = NormalizeRepositoryText(text);
+        if (_translations.TryGetValue(normalized, out translated)) return true;
         string[] lines = normalized.Split('\n');
         StringBuilder result = new StringBuilder();
         bool replaced = false;
@@ -591,6 +598,126 @@ public class ChineseLocalizationPlugin : IModPlugin
             rootName.IndexOf("BuildsGUI", StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
+    // Keep the wheel's five top-level action labels separate from generic
+    // translations. In particular, the title "Return" must not be confused
+    // with the keyboard key label, whose established translation is "回车".
+    private static bool TryTranslateInventoryWheelTitle(TextMesh textMesh, string text,
+        out string translated)
+    {
+        translated = null;
+        if (!IsInventoryWheelTextMesh(textMesh) || text == null) return false;
+        string normalized = NormalizePartText(text);
+        if (string.Equals(normalized, "Attach parts", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(normalized, "Attach part", StringComparison.OrdinalIgnoreCase))
+            translated = "装 配 零 件";
+        else if (string.Equals(normalized, "Break parts into bits", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(normalized, "Break into\nbits", StringComparison.OrdinalIgnoreCase))
+            translated = "分 解 零 件";
+        else if (string.Equals(normalized, "Swap Abilities", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(normalized, "Abilities", StringComparison.OrdinalIgnoreCase))
+            translated = "交 换 技 能";
+        else if (string.Equals(normalized, "Parts & Statistics", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(normalized, "Parts", StringComparison.OrdinalIgnoreCase))
+            translated = "部 件 属 性";
+        else if (string.Equals(normalized, "Return", StringComparison.OrdinalIgnoreCase))
+            translated = "返        回";
+        return translated != null;
+    }
+
+    // The wheel's source labels appear at about 21px with the composite font.
+    // This measured multiplier makes CJK 23px, i.e. 4px taller than the
+    // original English.  The stored base position allows manual local offsets
+    // without accumulating movement whenever the text watcher runs again.
+    private const float InventoryWheelTitleCharacterSize = 1.095f;
+    // First-pass visual centring deltas measured from the 363x686 reference
+    // capture. Positive local X moves left because these labels face -Y.
+    private const float InventoryAttachLocalOffsetX = -0.15f;
+    private const float InventoryAttachLocalOffsetY = -0.011f;
+
+    private const float InventoryAbilitiesLocalOffsetX = -0.040f;
+    private const float InventoryAbilitiesLocalOffsetY = 0.022f;
+
+    private const float InventoryBreakLocalOffsetX = -0.093f;
+    private const float InventoryBreakLocalOffsetY = -0.120f;
+
+    private const float InventoryStatsLocalOffsetX = 0.03f;
+    private const float InventoryStatsLocalOffsetY = 0.011f;
+
+    private const float InventoryReturnLocalOffsetX = 0.020f;
+    private const float InventoryReturnLocalOffsetY = -0.011f;
+
+    private static void ApplyInventoryWheelTitleLayout(TextMesh textMesh)
+    {
+        if (!IsInventoryWheelActionLabel(textMesh)) return;
+        textMesh.characterSize = InventoryWheelTitleCharacterSize;
+        if (textMesh.gameObject.name.EndsWith("Shadow", StringComparison.OrdinalIgnoreCase)) return;
+
+        Vector3 basePosition;
+        if (_inventoryWheelTitleBasePositions == null)
+            _inventoryWheelTitleBasePositions = new Dictionary<TextMesh, Vector3>();
+        if (!_inventoryWheelTitleBasePositions.TryGetValue(textMesh, out basePosition))
+        {
+            basePosition = textMesh.transform.localPosition;
+            _inventoryWheelTitleBasePositions[textMesh] = basePosition;
+        }
+        Vector2 offset = GetInventoryWheelTitleOffset(textMesh.gameObject.name);
+        textMesh.transform.localPosition = new Vector3(basePosition.x + offset.x,
+            basePosition.y + offset.y, basePosition.z);
+    }
+
+    private static Vector2 GetInventoryWheelTitleOffset(string objectName)
+    {
+        if (string.Equals(objectName, "pick", StringComparison.OrdinalIgnoreCase))
+            return new Vector2(InventoryAttachLocalOffsetX, InventoryAttachLocalOffsetY);
+        if (string.Equals(objectName, "abilties", StringComparison.OrdinalIgnoreCase))
+            return new Vector2(InventoryAbilitiesLocalOffsetX, InventoryAbilitiesLocalOffsetY);
+        if (string.Equals(objectName, "break", StringComparison.OrdinalIgnoreCase))
+            return new Vector2(InventoryBreakLocalOffsetX, InventoryBreakLocalOffsetY);
+        if (string.Equals(objectName, "stats", StringComparison.OrdinalIgnoreCase))
+            return new Vector2(InventoryStatsLocalOffsetX, InventoryStatsLocalOffsetY);
+        if (string.Equals(objectName, "return", StringComparison.OrdinalIgnoreCase))
+            return new Vector2(InventoryReturnLocalOffsetX, InventoryReturnLocalOffsetY);
+        return Vector2.zero;
+    }
+
+    private static bool IsInventoryWheelActionLabel(TextMesh textMesh)
+    {
+        if (!IsInventoryWheelTextMesh(textMesh) || textMesh.gameObject == null) return false;
+        string name = textMesh.gameObject.name;
+        return string.Equals(name, "pick", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(name, "abilties", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(name, "break", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(name, "stats", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(name, "return", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsInventoryWheelTextMesh(TextMesh textMesh)
+    {
+        if (textMesh == null || textMesh.transform == null) return false;
+        if (!textMesh.gameObject.activeInHierarchy) return false;
+        Transform current = textMesh.transform;
+        while (current != null)
+        {
+            if (current.gameObject.GetComponent("InventoryGraphicScript") != null)
+                return true;
+            current = current.parent;
+        }
+        return false;
+    }
+
+    private static bool IsInventoryWheelTitleText(TextMesh textMesh, string text)
+    {
+        if (!IsInventoryWheelTextMesh(textMesh)) return false;
+        string compact = NormalizePartText(text)
+            .Replace(MixedTextSpace.ToString(), string.Empty)
+            .Replace(" ", string.Empty);
+        return string.Equals(compact, "装配零件", StringComparison.Ordinal) ||
+            string.Equals(compact, "分解零件", StringComparison.Ordinal) ||
+            string.Equals(compact, "交换技能", StringComparison.Ordinal) ||
+            string.Equals(compact, "部件属性", StringComparison.Ordinal) ||
+            string.Equals(compact, "返回", StringComparison.Ordinal);
+    }
+
     private static bool TryTranslateBuildSlot(string text, out string translated)
     {
         translated = null;
@@ -612,8 +739,20 @@ public class ChineseLocalizationPlugin : IModPlugin
 
     private static bool IsRepositoryStatusText(string text)
     {
-        return string.Equals(NormalizePartText(text), "配装已读取!", StringComparison.Ordinal) ||
-            string.Equals(NormalizePartText(text), "配装已保存!", StringComparison.Ordinal);
+        string normalized = NormalizePartText(text);
+        return string.Equals(normalized, "配装已读取!", StringComparison.Ordinal) ||
+            string.Equals(normalized, "配装已保存!", StringComparison.Ordinal) ||
+            string.Equals(normalized, "零件已获取!", StringComparison.Ordinal) ||
+            string.Equals(normalized, "背包已满!", StringComparison.Ordinal);
+    }
+
+    private static bool IsRepositoryStatusSourceText(string text)
+    {
+        string normalized = NormalizeRepositoryText(text);
+        return string.Equals(normalized, "Set Loaded!", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(normalized, "Set Saved!", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(normalized, "Part downloaded!", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(normalized, "Maximum amount\nreached!", StringComparison.OrdinalIgnoreCase);
     }
 
     // These two Builds-only overlays use a smaller original ACKNOWTT mesh than
@@ -891,10 +1030,12 @@ public class ChineseLocalizationPlugin : IModPlugin
             {
                 if (IsBottomPromptText(textMesh.text)) ApplyMenuTextMeshFont(textMesh);
                 else if (IsRepositoryTextMesh(textMesh) || IsRepositoryStatusText(textMesh.text) ||
-                    IsPartNameText(textMesh.text))
+                    IsInventoryWheelTitleText(textMesh, textMesh.text) || IsPartNameText(textMesh.text))
                 {
                     ApplyPartFont(textMesh);
                     ApplyBuildsRepositoryTextLayout(textMesh, textMesh.text);
+                    if (IsInventoryWheelTitleText(textMesh, textMesh.text))
+                        ApplyInventoryWheelTitleLayout(textMesh);
                 }
                 else if (IsPartDescriptionText(textMesh.text) || IsAbilityDescriptionText(textMesh.text))
                     ApplyPartDescriptionFont(textMesh);
@@ -1340,12 +1481,8 @@ public class ChineseDialogueTextWatcher : MonoBehaviour
     {
         ChineseLocalizationPlugin.TickDialogueTextWatcher();
     }
+
 }
-
-
-
-
-
 
 
 
