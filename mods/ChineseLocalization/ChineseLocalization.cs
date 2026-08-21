@@ -423,6 +423,13 @@ public class ChineseLocalizationPlugin : IModPlugin
             ApplyPartFont(textMesh);
             ApplyInventoryWheelTitleLayout(textMesh);
         }
+        else if (TryTranslateInventoryWheelDescription(textMesh, originalText, out translated))
+            ApplyPartDescriptionFont(textMesh);
+        else if (TryTranslateInventoryWheelStats(textMesh, originalText, out translated))
+        {
+            ApplyPartDescriptionFont(textMesh);
+            ApplyInventoryWheelStatsLayout(textMesh);
+        }
         else if (TryTranslateDialogueProof(originalText, out translated))
             ApplyDialogueFont(textMesh);
         else if (TryTranslatePartText(originalText, out translated))
@@ -607,20 +614,30 @@ public class ChineseLocalizationPlugin : IModPlugin
         translated = null;
         if (!IsInventoryWheelTextMesh(textMesh) || text == null) return false;
         string normalized = NormalizePartText(text);
+        bool actionLabel = IsInventoryWheelActionLabel(textMesh);
         if (string.Equals(normalized, "Attach parts", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(normalized, "Attach part", StringComparison.OrdinalIgnoreCase))
-            translated = "装 配 零 件";
+            translated = actionLabel ? "装 配 零 件" : "装配零件";
         else if (string.Equals(normalized, "Break parts into bits", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(normalized, "Break into\nbits", StringComparison.OrdinalIgnoreCase))
-            translated = "分 解 零 件";
+            translated = actionLabel ? "分 解 零 件" : "分解零件";
         else if (string.Equals(normalized, "Swap Abilities", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(normalized, "Abilities", StringComparison.OrdinalIgnoreCase))
-            translated = "交 换 技 能";
+            translated = actionLabel ? "交 换 技 能" : "交换技能";
         else if (string.Equals(normalized, "Parts & Statistics", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(normalized, "Parts", StringComparison.OrdinalIgnoreCase))
-            translated = "部 件 属 性";
+            translated = actionLabel ? "部 件 属 性" : "部件属性";
         else if (string.Equals(normalized, "Return", StringComparison.OrdinalIgnoreCase))
-            translated = "返        回";
+            translated = actionLabel ? "返        回" : "返回";
+        else if (string.Equals(normalized, "Select part", StringComparison.OrdinalIgnoreCase))
+            translated = "选" + MixedTextSpace + "择" + MixedTextSpace +
+                "零" + MixedTextSpace + "件";
+        else if (string.Equals(normalized, "Pick part slot", StringComparison.OrdinalIgnoreCase))
+            translated = "选择零件槽位";
+        else if (string.Equals(normalized, "Pick direction slot", StringComparison.OrdinalIgnoreCase))
+            translated = "选择方向槽位";
+        else if (string.Equals(normalized, "Spare abilities", StringComparison.OrdinalIgnoreCase))
+            translated = "备用技能";
         return translated != null;
     }
 
@@ -645,11 +662,18 @@ public class ChineseLocalizationPlugin : IModPlugin
 
     private const float InventoryReturnLocalOffsetX = 0.020f;
     private const float InventoryReturnLocalOffsetY = -0.011f;
+    private const float InventorySelectPartLocalOffsetX = -0.16f;
 
     private static void ApplyInventoryWheelTitleLayout(TextMesh textMesh)
     {
-        if (!IsInventoryWheelActionLabel(textMesh)) return;
-        textMesh.characterSize = InventoryWheelTitleCharacterSize;
+        bool actionLabel = IsInventoryWheelActionLabel(textMesh);
+        string compact = NormalizePartText(textMesh == null ? null : textMesh.text)
+            .Replace(MixedTextSpace.ToString(), string.Empty)
+            .Replace(" ", string.Empty);
+        bool selectPart = string.Equals(compact, "Selectpart", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(compact, "选择零件", StringComparison.Ordinal);
+        if (!actionLabel && !selectPart) return;
+        if (actionLabel) textMesh.characterSize = InventoryWheelTitleCharacterSize;
         if (textMesh.gameObject.name.EndsWith("Shadow", StringComparison.OrdinalIgnoreCase)) return;
 
         Vector3 basePosition;
@@ -660,7 +684,8 @@ public class ChineseLocalizationPlugin : IModPlugin
             basePosition = textMesh.transform.localPosition;
             _inventoryWheelTitleBasePositions[textMesh] = basePosition;
         }
-        Vector2 offset = GetInventoryWheelTitleOffset(textMesh.gameObject.name);
+        Vector2 offset = selectPart ? new Vector2(InventorySelectPartLocalOffsetX, 0f) :
+            GetInventoryWheelTitleOffset(textMesh.gameObject.name);
         textMesh.transform.localPosition = new Vector3(basePosition.x + offset.x,
             basePosition.y + offset.y, basePosition.z);
     }
@@ -715,7 +740,123 @@ public class ChineseLocalizationPlugin : IModPlugin
             string.Equals(compact, "分解零件", StringComparison.Ordinal) ||
             string.Equals(compact, "交换技能", StringComparison.Ordinal) ||
             string.Equals(compact, "部件属性", StringComparison.Ordinal) ||
-            string.Equals(compact, "返回", StringComparison.Ordinal);
+            string.Equals(compact, "返回", StringComparison.Ordinal) ||
+            string.Equals(compact, "选择零件", StringComparison.Ordinal) ||
+            string.Equals(compact, "选择零件槽位", StringComparison.Ordinal) ||
+            string.Equals(compact, "选择方向槽位", StringComparison.Ordinal) ||
+            string.Equals(compact, "备用技能", StringComparison.Ordinal);
+    }
+
+    private static bool TryTranslateInventoryWheelDescription(TextMesh textMesh, string text,
+        out string translated)
+    {
+        translated = null;
+        if (!IsInventoryWheelTextMesh(textMesh) || text == null || _translations == null)
+            return false;
+        string normalized = NormalizeAbilityText(text);
+        if (_translations.TryGetValue(normalized, out translated)) return true;
+
+        // Several inventory states append a second status block to the same
+        // TextMesh. Translate each known block independently instead of
+        // requiring the combined runtime string to exist in translations.tsv.
+        string combined = normalized;
+        bool replaced = false;
+        replaced |= ReplaceInventoryTextBlock(ref combined,
+            "Destroy this part? No bits will\nbe recieved.",
+            "分解此零件? 不会获得 Bits.");
+        replaced |= ReplaceInventoryTextBlock(ref combined,
+            "Destroy this part to salvage 4\nbits from it.",
+            "分解此零件可回收 4 Bits.");
+        replaced |= ReplaceInventoryTextBlock(ref combined,
+            "Destroy this part to salvage 2\nbits from it.",
+            "分解此零件可回收 2 Bits.");
+        replaced |= ReplaceInventoryTextBlock(ref combined,
+            "This part is in your collection", "此零件已收录.");
+        replaced |= ReplaceInventoryTextBlock(ref combined,
+            "This part is not yet in your\ncollection", "此零件尚未收录.");
+        replaced |= ReplaceInventoryTextBlock(ref combined,
+            "While playing, hold the chosen\ndirection and press the ability\nbutton to activate.",
+            "游戏中按住所选方向并按技能键即可发动.");
+        replaced |= ReplaceInventoryTextBlock(ref combined,
+            "No direction + Special.", "无方向 + 技能键.");
+        replaced |= ReplaceInventoryTextBlock(ref combined,
+            "Up + Special.", "上 + 技能键.");
+        replaced |= ReplaceInventoryTextBlock(ref combined,
+            "Side + Special.", "左右 + 技能键.");
+        replaced |= ReplaceInventoryTextBlock(ref combined,
+            "Down + Special.", "下 + 技能键.");
+        if (!replaced) return false;
+        translated = combined;
+        return true;
+    }
+
+    private static bool ReplaceInventoryTextBlock(ref string text, string source, string localized)
+    {
+        if (text.IndexOf(source, StringComparison.OrdinalIgnoreCase) < 0) return false;
+        int index = text.IndexOf(source, StringComparison.OrdinalIgnoreCase);
+        text = text.Substring(0, index) + localized + text.Substring(index + source.Length);
+        return true;
+    }
+
+    private static bool IsInventoryWheelDescriptionTextMesh(TextMesh textMesh)
+    {
+        return IsInventoryWheelTextMesh(textMesh) && textMesh.gameObject != null &&
+            textMesh.gameObject.name.StartsWith("Description", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsInventoryWheelDescriptionText(TextMesh textMesh, string text)
+    {
+        if (!IsInventoryWheelTextMesh(textMesh) || text == null) return false;
+        string normalized = NormalizeAbilityText(text);
+        return string.Equals(normalized, "你目前没有可装配的零件.", StringComparison.Ordinal) ||
+            string.Equals(normalized,
+                "分解零件以回收 Bits.\n只有关卡中获得的零件\n才能分解为 Bits.",
+                StringComparison.Ordinal) ||
+            string.Equals(normalized, "分解零件以回收 Bits.", StringComparison.Ordinal) ||
+            string.Equals(normalized, "你目前没有可分解的零件.", StringComparison.Ordinal) ||
+            string.Equals(normalized, "重新排列技能.", StringComparison.Ordinal) ||
+            string.Equals(normalized, "查看当前装配的零件.", StringComparison.Ordinal) ||
+            string.Equals(normalized, "返回游戏.", StringComparison.Ordinal) ||
+            string.Equals(normalized, "选择要交换的技能槽.", StringComparison.Ordinal) ||
+            string.Equals(normalized, "现在选择另一个技能槽进行交换.\n也可以从备用技能中选择.", StringComparison.Ordinal) ||
+            string.Equals(normalized, "选择要装配零件的位置.", StringComparison.Ordinal) ||
+            string.Equals(normalized, "分解此零件? 不会获得 Bits.", StringComparison.Ordinal) ||
+            normalized.StartsWith("分解此零件可回收 ", StringComparison.Ordinal) ||
+            string.Equals(normalized, "此零件已收录.", StringComparison.Ordinal) ||
+            string.Equals(normalized, "此零件尚未收录.", StringComparison.Ordinal) ||
+            normalized.EndsWith(" + 技能键.", StringComparison.Ordinal) ||
+            string.Equals(normalized, "将技能配置到上方向.", StringComparison.Ordinal) ||
+            string.Equals(normalized, "游戏中按住所选方向并按技能键即可发动.", StringComparison.Ordinal) ||
+            normalized.StartsWith("总属性:", StringComparison.Ordinal);
+    }
+
+    private static bool TryTranslateInventoryWheelStats(TextMesh textMesh, string text,
+        out string translated)
+    {
+        translated = null;
+        if (!IsInventoryWheelTextMesh(textMesh) || text == null) return false;
+        string normalized = NormalizeAbilityText(text);
+        if (!normalized.StartsWith("Total stats:", StringComparison.OrdinalIgnoreCase)) return false;
+
+        translated = normalized
+            .Replace("Total stats:", "总属性:")
+            .Replace("Extra damage:", "额外伤害:")
+            .Replace("Attack speed:", "攻击速度:")
+            .Replace("Armor:", "护甲:")
+            .Replace("Shield life:", "护盾值:")
+            .Replace("Jumps:", "跳跃次数:")
+            .Replace("Movement speed:", "移动速度:")
+            .Replace("Red Virus Immunity", "红色病毒免疫");
+        return true;
+    }
+
+    // The CJK glyphs are intentionally 4px taller than Visitor ASCII. Keep
+    // the eight-line statistics block inside its original panel by reducing
+    // only the inter-line advance; glyph size remains unchanged.
+    private static void ApplyInventoryWheelStatsLayout(TextMesh textMesh)
+    {
+        if (textMesh == null) return;
+        textMesh.lineSpacing = 0.68f;
     }
 
     private static bool TryTranslateBuildSlot(string text, out string translated)
@@ -1037,8 +1178,14 @@ public class ChineseLocalizationPlugin : IModPlugin
                     if (IsInventoryWheelTitleText(textMesh, textMesh.text))
                         ApplyInventoryWheelTitleLayout(textMesh);
                 }
-                else if (IsPartDescriptionText(textMesh.text) || IsAbilityDescriptionText(textMesh.text))
+                else if (IsInventoryWheelDescriptionText(textMesh, textMesh.text) ||
+                    IsPartDescriptionText(textMesh.text) || IsAbilityDescriptionText(textMesh.text))
+                {
                     ApplyPartDescriptionFont(textMesh);
+                    if (IsInventoryWheelTextMesh(textMesh) &&
+                        NormalizeAbilityText(textMesh.text).StartsWith("总属性:", StringComparison.Ordinal))
+                        ApplyInventoryWheelStatsLayout(textMesh);
+                }
                 else ApplyDialogueFont(textMesh);
             }
             else ApplyLocalizedTextMesh(textMesh, textMesh.text);

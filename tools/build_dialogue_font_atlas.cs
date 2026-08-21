@@ -111,7 +111,10 @@ class BuildDialogueFontAtlas
             foreach (Glyph glyph in glyphs) glyph.Image = RasterGlyph(visitor, (char)glyph.Code);
             string chinese = File.ReadAllText(translations, Encoding.UTF8);
             if (partDescriptions)
+            {
                 chinese += File.ReadAllText(abilityTranslations, Encoding.UTF8);
+                chinese += File.ReadAllText(Combine(outputDir, "translations.tsv"), Encoding.UTF8);
+            }
             HashSet<char> emitted = new HashSet<char>();
             foreach (char character in chinese)
             {

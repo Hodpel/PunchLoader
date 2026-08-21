@@ -112,6 +112,34 @@ Break parts into bits	分解零件
 Swap Abilities	交换技能
 Parts & Statistics	部 件 属 性
 inventory return title	返回
+You currently don't have any\nparts to attach.	你目前没有可装配的零件.
+Destroy parts to salvage bits\nfrom it. Only parts found in\nlevels can be broken into bits.	分解零件可回收 Bits.\n只有关卡中获得的零件才能分解为 Bits.
+Destroy parts to salvage bits\nfrom it.	分解零件以回收 Bits.
+You currently don't have any\nparts to break.	你目前没有可分解的零件.
+Swap abilties around.	重新排列技能.
+Look at your current set of\nparts.	查看当前装配的零件.
+Return to the game.	返回游戏.
+Select part	选择零件
+Spare abilities	备用技能
+Pick an ability slot to swap.	选择要交换的技能槽.
+now pick an ability slot to swap\nit with. You can also pick\none from your spare abilties.	现在选择另一个技能槽进行交换.\n也可以从备用技能中选择.
+Pick part slot	选择零件槽位
+Choose where you want\nto attach the part.	选择要装配零件的位置.
+Destroy this part? No bits will\nbe recieved.	分解此零件? 不会获得 Bits.
+Destroy this part to salvage 4\nbits from it.	分解此零件可回收 4 Bits.
+Destroy this part to salvage 2\nbits from it.	分解此零件可回收 2 Bits.
+This part is in your collection	\n\n\n\n此零件已收录.
+This part is not yet in your\ncollection	\n\n\n\n此零件尚未收录.
+Pick direction slot	选择方向槽位
+Choose the direction you want\nthe ability assigned to.\n\n\nThen, to activate, hold the\ndirection and press the\nability button.	选择要配置技能的方向.
+No direction + Special.	无方向 + 技能键.
+Up + Special.	上 + 技能键.
+Side + Special.	左右 + 技能键.
+Down + Special.	下 + 技能键.
+Choose the direction you want\nthe ability assigned to.	选择要配置技能的方向.
+Place the ability on the up\ndirection.	将技能配置到上方向.
+While playing, hold the chosen\ndirection and press the ability\nbutton to activate.	游戏中按住所选方向并按技能键即可发动.\n\n
+Inventory full!	背包已满!
 jump	跳跃
 block	格挡
 thrust	冲刺
