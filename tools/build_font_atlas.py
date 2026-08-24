@@ -20,14 +20,14 @@ from PIL import Image, ImageDraw, ImageFont
 ROOT = Path(__file__).resolve().parent.parent
 MOD = ROOT / "mods" / "ChineseLocalization"
 FONT = ROOT / "tools" / "fonts" / "BoutiqueBitmap9x9_Bold_1.93.ttf"
-TRANSLATIONS = MOD / "translations.tsv"
-PART_TRANSLATIONS = MOD / "part_translations.tsv"
-PNG = MOD / "font_atlas.png"
-MAP = MOD / "glyphs.tsv"
-SMALL_PNG = MOD / "font_atlas_small.png"
-SMALL_MAP = MOD / "glyphs_small.tsv"
-PART_PNG = MOD / "part_font_atlas.png"
-PART_MAP = MOD / "part_glyphs.tsv"
+DATA = MOD / "data"
+FONT_OUTPUT = MOD / "fonts"
+TRANSLATIONS = DATA / "ui.tsv"
+PART_TRANSLATIONS = DATA / "parts.tsv"
+PNG = FONT_OUTPUT / "ack_large.png"
+MAP = FONT_OUTPUT / "ack_large.tsv"
+SMALL_PNG = FONT_OUTPUT / "ack_small.png"
+SMALL_MAP = FONT_OUTPUT / "ack_small.tsv"
 MIXED_TEXT_SPACE = "\u2009"
 
 # Unity uses the Font fontSize as the default GUI line-height basis.  Preserve
@@ -44,9 +44,7 @@ SMALL_FONT_SIZE = 35
 SMALL_BOUTIQUE_RASTER_SIZE = 19
 SMALL_BOUTIQUE_TARGET_HEIGHT = 18
 SMALL_ACK_CAP_Y = -11.585
-PART_BOUTIQUE_RASTER_SIZE = 25
-PART_BOUTIQUE_TARGET_HEIGHT = 23
-PADDING = 2
+PADDING = 1
 MAX_SIZE = 2048
 
 
@@ -135,7 +133,9 @@ def parse_ack_glyphs(font_path, texture_path):
 
 
 def collect_characters(targets):
-    chars = set("。，、；：？！…—～【】（）《》·「」『』“”‘’")
+    # Some localized strings are assembled dynamically at runtime and therefore
+    # do not appear as complete targets in translations.tsv.
+    chars = set("。，、；：？！…—～【】（）《》·「」『』“”‘’第关完成需要重启")
     for target in targets:
         chars.update(target)
     # ASCII is supplied exclusively by the original ACKNOWTT atlas.
@@ -229,24 +229,19 @@ def build(args):
         if not path.exists():
             raise FileNotFoundError("ACKNOWTT source asset or texture is missing: " + str(path))
 
+    FONT_OUTPUT.mkdir(parents=True, exist_ok=True)
     menu_targets = read_targets()
-    # Repository labels share the parts TextMesh font at runtime, so its atlas
-    # must include their CJK glyphs in addition to equipment names.
-    part_targets = read_part_targets() + menu_targets
+    # Menus, repositories and part names use identical ACKNOWTT/Boutique
+    # metrics.  Build one superset atlas instead of duplicating the same face
+    # merely because each screen needs a different vocabulary.
+    large_targets = read_part_targets() + menu_targets
     ack = parse_ack_glyphs(args.ack_font, args.ack_texture)
-    build_variant(ack, menu_targets,
+    build_variant(ack, large_targets,
                   BOUTIQUE_RASTER_SIZE, BOUTIQUE_TARGET_HEIGHT, FONT_SIZE, ACK_CAP_Y, PNG, MAP)
     build_variant(parse_ack_glyphs(args.ack_small_font, args.ack_small_texture), menu_targets,
                   SMALL_BOUTIQUE_RASTER_SIZE, SMALL_BOUTIQUE_TARGET_HEIGHT,
                   SMALL_FONT_SIZE, SMALL_ACK_CAP_Y,
                   SMALL_PNG, SMALL_MAP)
-    # The inventory and collection use the same 50px ACKNOWTT face as menus,
-    # but need the complete 150-part vocabulary rather than menu labels.  Their
-    # Chinese glyphs use the same 23px visual height as the large menu face,
-    # while ACKNOWTT ASCII remains byte-for-byte from the original atlas.
-    build_variant(ack, part_targets,
-                  PART_BOUTIQUE_RASTER_SIZE, PART_BOUTIQUE_TARGET_HEIGHT, FONT_SIZE, ACK_CAP_Y,
-                  PART_PNG, PART_MAP, center_cjk=True)
 
 
 if __name__ == "__main__":

@@ -13,11 +13,23 @@ py -3.11 tools\build_font_atlas.py `
 C:\Windows\Microsoft.NET\Framework\v3.5\csc.exe @mods\ChineseLocalization\build.rsp
 ```
 
-生成的常规与小字号图集（`font_atlas*.png`、`glyphs*.tsv`）与 DLL、`plugin.json` 一并放入游戏的 `MegabytePunch_Data\Mods\ChineseLocalization\`。
+构建产物按用途归入三个目录：
 
-`scripts\build_all.ps1` 会生成两类 TextMesh 图集：`dialogue_font_atlas.png` / `dialogue_glyphs.tsv` 使用 Visitor TT2 BRK ASCII，供对话与零件说明使用；`part_font_atlas.png` / `part_glyphs.tsv` 使用游戏原始 ACKNOWTT ASCII，供零件名称与列表使用。两者都会为所需译文补入 BoutiqueBitmap 9x9 Bold 中文字符。
+```text
+ChineseLocalization/
+├─ fonts/           # ack_large、ack_small、visitor 三套图集与映射
+├─ data/            # 运行时所需的 UI、对话、零件和技能译文
+└─ licenses/        # 字体许可与声明
+```
 
-字体：BoutiqueBitmap 9x9 Bold 1.93（Add Spacing），采用 SIL Open Font License 1.1；发布包必须保留 `FONT_LICENSE.txt` 与 `FONT_NOTICE.md`。英文 ASCII 字形来自游戏原版 ACKNOWTT。
+对话自动换行的词块和人工覆盖规则属于构建工具输入，维护在仓库的
+`tools/localization/`，不会打包进运行时模组。
 
-对话验证的中文字体同样为 BoutiqueBitmap 9x9 Bold 1.93（Add Spacing）；许可说明由 `FONT_LICENSE.txt` 与 `FONT_NOTICE.md` 覆盖。 
+三套字体分别是：
+
+- `ack_large`：游戏原始 ACKNOWTT 大字号 ASCII，以及菜单、仓库和零件名称所需中文；
+- `ack_small`：游戏原始 ACKNOWTT 小字号 ASCII，以及小字号菜单所需中文；
+- `visitor`：Visitor TT2 BRK ASCII，以及对话、零件说明和技能说明所需中文。
+
+同一规格不再按业务页面重复生成图集。所有中文均使用 BoutiqueBitmap 9x9 Bold 1.93（Add Spacing），采用 SIL Open Font License 1.1；发布包必须保留 `licenses/FONT_LICENSE.txt` 与 `licenses/FONT_NOTICE.md`。
 

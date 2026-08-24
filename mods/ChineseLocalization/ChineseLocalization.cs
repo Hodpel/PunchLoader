@@ -37,6 +37,7 @@ public class ChineseLocalizationPlugin : IModPlugin
     private static bool _dialogueDataPatched;
     private static Dictionary<GUIStyle, GUIStyle> _layoutStyles;
     private static Dictionary<GUIStyle, GUIStyle> _renderStyles;
+    private static Dictionary<GUIStyle, GUIStyle> _modListRenderStyles;
     // InputConfigMenuScript builds a 700px-wide local GUILayout area and gives
     // every binding value (including X/Z) GUILayout.MinWidth(64).
     private const float InputConfigAreaWidth = 700f;
@@ -58,7 +59,7 @@ public class ChineseLocalizationPlugin : IModPlugin
     private const float LocalizedTextYOffset = -23f;
     private const float SmallLocalizedTextYOffset = -16f;
     public string GetId() { return "ChineseLocalization"; }
-    public string GetName() { return "简体中文"; }
+    public string GetName() { return "Simplified Chinese"; }
     public string GetVersion() { return "1.0.0"; }
 
     public void OnLoad()
@@ -67,35 +68,33 @@ public class ChineseLocalizationPlugin : IModPlugin
 
         try
         {
-            string modDirectory = Path.Combine(Path.Combine(Application.dataPath, "Mods"), GetId());
+            string modDirectory = ModPaths.GetModDirectory(GetId());
+            string dataDirectory = Path.Combine(modDirectory, "data");
+            string fontDirectory = Path.Combine(modDirectory, "fonts");
             Dictionary<string, string> translations = LoadTranslations(
-                Path.Combine(modDirectory, "translations.tsv"));
+                Path.Combine(dataDirectory, "ui.tsv"));
             Dictionary<string, string> dialogueTranslations = LoadDialogueTranslations(
-                Path.Combine(modDirectory, "dialogue_translations.tsv"));
-            LoadPartTranslations(Path.Combine(modDirectory, "part_translations.tsv"));
-            LoadAbilityTranslations(Path.Combine(modDirectory, "ability_translations.tsv"));
-            Font font = LoadFont(modDirectory, "font_atlas.png", "glyphs.tsv",
+                Path.Combine(dataDirectory, "dialogue.tsv"));
+            LoadPartTranslations(Path.Combine(dataDirectory, "parts.tsv"));
+            LoadAbilityTranslations(Path.Combine(dataDirectory, "abilities.tsv"));
+            Font font = LoadFont(fontDirectory, "ack_large.png", "ack_large.tsv",
                 "PunchLoader ACKNOWTT + BoutiqueBitmap");
-            Font smallFont = LoadFont(modDirectory, "font_atlas_small.png", "glyphs_small.tsv",
+            Font smallFont = LoadFont(fontDirectory, "ack_small.png", "ack_small.tsv",
                 "PunchLoader ACKNOWTT Small + BoutiqueBitmap");
-            Font dialogueFont = LoadFont(modDirectory, "dialogue_font_atlas.png", "dialogue_glyphs.tsv",
+            Font dialogueFont = LoadFont(fontDirectory, "visitor.png", "visitor.tsv",
                 "PunchLoader visitor2 + BoutiqueBitmap Bold");
-            Font partFont = LoadFont(modDirectory, "part_font_atlas.png", "part_glyphs.tsv",
-                "PunchLoader ACKNOWTT + BoutiqueBitmap Bold Parts");
-            Font partDescriptionFont = LoadFont(modDirectory,
-                "part_description_font_atlas.png", "part_description_glyphs.tsv",
-                "PunchLoader visitor2 + BoutiqueBitmap Bold Part Descriptions");
-            if (font == null || smallFont == null || dialogueFont == null || partFont == null || partDescriptionFont == null) return;
+            if (font == null || smallFont == null || dialogueFont == null) return;
 
             _translations = translations;
             _font = font;
             _smallFont = smallFont;
             _dialogueFont = dialogueFont;
-            _partFont = partFont;
-            _partDescriptionFont = partDescriptionFont;
+            _partFont = font;
+            _partDescriptionFont = dialogueFont;
             _dialogueTranslations = dialogueTranslations;
             _layoutStyles = new Dictionary<GUIStyle, GUIStyle>();
             _renderStyles = new Dictionary<GUIStyle, GUIStyle>();
+            _modListRenderStyles = new Dictionary<GUIStyle, GUIStyle>();
             _pendingBottomPrompts = new Dictionary<TextMesh, bool>();
             _inventoryWheelTitleBasePositions = new Dictionary<TextMesh, Vector3>();
             HookManager.Register(new TextTransformHandler(Translate));
@@ -156,7 +155,7 @@ public class ChineseLocalizationPlugin : IModPlugin
 
     private static Dictionary<string, string> LoadTranslations(string path)
     {
-        if (!File.Exists(path)) throw new FileNotFoundException("translations.tsv missing", path);
+        if (!File.Exists(path)) throw new FileNotFoundException("UI translation table missing", path);
         Dictionary<string, string> result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         using (StreamReader reader = new StreamReader(path, System.Text.Encoding.UTF8, true))
         {
@@ -191,7 +190,7 @@ public class ChineseLocalizationPlugin : IModPlugin
         if (!texture.LoadImage(png))
         {
             UnityEngine.Object.Destroy(texture);
-            throw new Exception("Could not load font_atlas.png");
+            throw new Exception("Could not load bitmap font atlas: " + atlasFile);
         }
 
         Font font = (Font)typeof(Font).GetConstructor(new Type[] { typeof(string) }).Invoke(
@@ -294,11 +293,17 @@ public class ChineseLocalizationPlugin : IModPlugin
         if (TryTranslateInputBinding(text, out translated)) return translated;
 
         // Dynamic labels are assembled by the original game; translate their stable prefixes.
-        if (text.StartsWith("[ON]")) return "[开]" + text.Substring(4);
-        if (text.StartsWith("[OFF]")) return "[关]" + text.Substring(5);
+        if (text.StartsWith("[ON]")) return "[开]" + TranslateModListSuffix(text.Substring(4));
+        if (text.StartsWith("[OFF]")) return "[关]" + TranslateModListSuffix(text.Substring(5));
         if (text.StartsWith("player ")) return "玩家 " + text.Substring(7);
         if (text.StartsWith("Level ")) return "关卡 " + text.Substring(6);
         return text;
+    }
+
+    private static string TranslateModListSuffix(string text)
+    {
+        return text.Replace("Simplified Chinese", "简体中文")
+            .Replace("[RESTART]", "[需要重启]");
     }
 
     private static bool TryTranslateInputBinding(string text, out string translated)
@@ -373,7 +378,7 @@ public class ChineseLocalizationPlugin : IModPlugin
                 // Only the overlay box changes: it is right-anchored like the
                 // direction keys, but uses the translated text's actual width.
                 // This handles both English-wider and Chinese-wider bindings.
-                GUIStyle renderStyle = GetRenderStyle(source);
+                GUIStyle renderStyle = GetLocalizedRenderStyle(originalText, source);
                 float bindingWidth = renderStyle.CalcSize(new GUIContent(renderedText)).x;
                 if (bindingWidth < InputBindingWidth) bindingWidth = InputBindingWidth;
                 Rect bindingRect = new Rect(rect.xMax - bindingWidth, rect.y,
@@ -381,7 +386,7 @@ public class ChineseLocalizationPlugin : IModPlugin
                 GUI.Label(bindingRect, renderedText, renderStyle);
             }
             else
-                GUI.Label(rect, renderedText, GetRenderStyle(source));
+                GUI.Label(rect, renderedText, GetLocalizedRenderStyle(originalText, source));
         }
         return true;
     }
@@ -408,6 +413,7 @@ public class ChineseLocalizationPlugin : IModPlugin
         if (textMesh == null || _dialogueFont == null) return false;
 
         string translated;
+        bool levelCompleteDescription;
         if (TryTranslateBottomPrompt(originalText, out translated))
         {
             QueueBottomPrompt(textMesh, translated, GetBottomPromptKind(originalText));
@@ -430,6 +436,16 @@ public class ChineseLocalizationPlugin : IModPlugin
             ApplyPartDescriptionFont(textMesh);
             ApplyInventoryWheelStatsLayout(textMesh);
         }
+        else if (TryTranslateLevelCompleteText(textMesh, originalText, out translated,
+            out levelCompleteDescription))
+        {
+            if (levelCompleteDescription) ApplyPartDescriptionFont(textMesh);
+            else ApplyPartFont(textMesh);
+        }
+        else if (TryTranslateTransientStatusText(originalText, out translated))
+            ApplyPartFont(textMesh);
+        else if (TryTranslateShopText(textMesh, originalText, out translated))
+            ApplyPartFont(textMesh);
         else if (TryTranslateDialogueProof(originalText, out translated))
             ApplyDialogueFont(textMesh);
         else if (TryTranslatePartText(originalText, out translated))
@@ -438,6 +454,202 @@ public class ChineseLocalizationPlugin : IModPlugin
             return false;
         textMesh.text = translated;
         return true;
+    }
+
+    private static bool TryTranslateTransientStatusText(string text, out string translated)
+    {
+        translated = null;
+        if (text == null) return false;
+        string normalized = text.Replace("\r\n", "\n").Replace("\r", "\n").Trim();
+        if (string.Equals(normalized, "Color collected!", StringComparison.OrdinalIgnoreCase))
+        {
+            translated = "已获得配色!";
+            return true;
+        }
+        if (string.Equals(normalized, "+ 1 life!", StringComparison.OrdinalIgnoreCase))
+        {
+            translated = "+" + MixedTextSpace + "1" + MixedTextSpace + "条命!";
+            return true;
+        }
+        return false;
+    }
+
+    private static bool IsLocalizedTransientStatusText(string text)
+    {
+        if (text == null) return false;
+        string compact = text.Replace(MixedTextSpace.ToString(), string.Empty)
+            .Replace(" ", string.Empty).Trim();
+        return string.Equals(compact, "已获得配色!", StringComparison.Ordinal) ||
+            string.Equals(compact, "+1条命!", StringComparison.Ordinal);
+    }
+
+    private static bool TryTranslateLevelCompleteText(TextMesh textMesh, string text,
+        out string translated, out bool description)
+    {
+        translated = null;
+        description = false;
+        if (text == null) return false;
+        string normalized = text.Replace("\r\n", "\n").Replace("\r", "\n").Trim();
+
+        const string levelPrefix = "Level ";
+        const string levelSuffix = " completed!";
+        if (normalized.StartsWith(levelPrefix, StringComparison.OrdinalIgnoreCase) &&
+            normalized.EndsWith(levelSuffix, StringComparison.OrdinalIgnoreCase))
+        {
+            string number = normalized.Substring(levelPrefix.Length,
+                normalized.Length - levelPrefix.Length - levelSuffix.Length).Trim();
+            translated = "第" + MixedTextSpace + number + MixedTextSpace + "关完成!";
+            return true;
+        }
+
+        if (string.Equals(normalized, "GET:", StringComparison.OrdinalIgnoreCase))
+        {
+            translated = "获得:";
+            return true;
+        }
+        if (string.Equals(normalized, "OK", StringComparison.OrdinalIgnoreCase) &&
+            IsLevelCompleteTextMesh(textMesh))
+        {
+            translated = "确定";
+            return true;
+        }
+        if (string.Equals(normalized, "Tournament won!", StringComparison.OrdinalIgnoreCase))
+        {
+            translated = "锦标赛获胜!";
+            return true;
+        }
+
+        description = true;
+        if (string.Equals(normalized,
+            "You've beaten Warlord Bouldar and recieved his drill part.\n" +
+            "Check the collection chest in your house!", StringComparison.Ordinal))
+            translated = "你击败了军阀" + MixedTextSpace + "Bouldar,获得了他的钻头零件.\n" +
+                "请到家中的收藏仓库查看!";
+        else if (string.Equals(normalized, "You've beaten General HB-02!",
+            StringComparison.Ordinal))
+            translated = "你击败了" + MixedTextSpace + "HB-02" + MixedTextSpace + "将军!";
+        else if (string.Equals(normalized, "You have defeated Grand Khotep Scarb!",
+            StringComparison.Ordinal))
+            translated = "你击败了" + MixedTextSpace + "Khotep" + MixedTextSpace +
+                "领主" + MixedTextSpace + "Scarb!";
+        else if (string.Equals(normalized, "You have defeated Grand Khotep Muer!",
+            StringComparison.Ordinal))
+            translated = "你击败了" + MixedTextSpace + "Khotep" + MixedTextSpace +
+                "领主" + MixedTextSpace + "Muer!";
+        else if (string.Equals(normalized, "You have defeated the Ice-Beak Assassins!",
+            StringComparison.Ordinal))
+            translated = "你击败了冰喙刺客!";
+        else if (string.Equals(normalized, "You have defeated the General HB-03!",
+            StringComparison.Ordinal))
+            translated = "你击败了" + MixedTextSpace + "HB-03" + MixedTextSpace + "将军!";
+        else if (string.Equals(normalized, "You've received a special part!",
+            StringComparison.Ordinal))
+            translated = "你获得了一个特殊零件!";
+        else
+        {
+            description = false;
+            return false;
+        }
+        return true;
+    }
+
+    private static bool IsLevelCompleteTextMesh(TextMesh textMesh)
+    {
+        if (textMesh == null || textMesh.transform == null) return false;
+        Transform current = textMesh.transform;
+        while (current != null)
+        {
+            string name = current.gameObject == null ? string.Empty : current.gameObject.name;
+            if (name.IndexOf("levelComplete", StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+            current = current.parent;
+        }
+        return false;
+    }
+
+    private static bool IsLevelCompleteDescriptionTextMesh(TextMesh textMesh)
+    {
+        if (!IsLevelCompleteTextMesh(textMesh) || textMesh.transform == null) return false;
+        Transform current = textMesh.transform;
+        while (current != null)
+        {
+            string name = current.gameObject == null ? string.Empty : current.gameObject.name;
+            if (name.IndexOf("levelCompleteText", StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+            current = current.parent;
+        }
+        return false;
+    }
+
+    // ShopAbilityScript assembles these labels at runtime by appending the
+    // current price/bit count to a stable English prefix.  Translate only the
+    // prefix and preserve the game's line break and numeric value verbatim.
+    private static bool TryTranslateShopText(TextMesh textMesh, string text,
+        out string translated)
+    {
+        translated = null;
+        if (text == null) return false;
+        string normalized = text.Replace("\r\n", "\n").Replace("\r", "\n");
+
+        if (normalized.StartsWith("Price:", StringComparison.OrdinalIgnoreCase))
+        {
+            translated = "价格:" + normalized.Substring("Price:".Length);
+            return true;
+        }
+        if (normalized.StartsWith("Total bits:", StringComparison.OrdinalIgnoreCase))
+        {
+            translated = "持有" + MixedTextSpace + "Bits:" +
+                normalized.Substring("Total bits:".Length);
+            return true;
+        }
+        if (string.Equals(normalized.Trim(), "Sold out.", StringComparison.OrdinalIgnoreCase))
+        {
+            translated = "已售罄.";
+            return true;
+        }
+
+        // Yes/No are shared with ordinary menus, but the shop creates them as
+        // TextMeshes instead of GUILayout labels.  Restrict this branch to the
+        // shop hierarchy so unrelated world text is left untouched.
+        if (IsShopTextMesh(textMesh))
+        {
+            string value = normalized.Trim();
+            if (string.Equals(value, "Yes", StringComparison.OrdinalIgnoreCase))
+            {
+                translated = "是";
+                return true;
+            }
+            if (string.Equals(value, "No", StringComparison.OrdinalIgnoreCase))
+            {
+                translated = "否";
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static bool IsShopTextMesh(TextMesh textMesh)
+    {
+        if (textMesh == null || textMesh.transform == null) return false;
+        Type shopType = FindLoadedType("ShopAbilityScript");
+        Transform current = textMesh.transform;
+        while (current != null)
+        {
+            if (shopType != null && current.GetComponent(shopType) != null) return true;
+            string name = current.gameObject == null ? string.Empty : current.gameObject.name;
+            if (name.IndexOf("shop", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            current = current.parent;
+        }
+        return false;
+    }
+
+    private static bool IsLocalizedShopText(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return false;
+        string normalized = text.Replace("\r\n", "\n").Replace("\r", "\n").Trim();
+        return normalized.StartsWith("价格:", StringComparison.Ordinal) ||
+            normalized.StartsWith("持有" + MixedTextSpace + "Bits:", StringComparison.Ordinal) ||
+            string.Equals(normalized, "已售罄.", StringComparison.Ordinal);
     }
 
     private static void QueueBottomPrompt(TextMesh textMesh, string translated, int collectionPromptKind)
@@ -1170,6 +1382,16 @@ public class ChineseLocalizationPlugin : IModPlugin
             if (ContainsChinese(textMesh.text))
             {
                 if (IsBottomPromptText(textMesh.text)) ApplyMenuTextMeshFont(textMesh);
+                else if (IsLevelCompleteTextMesh(textMesh))
+                {
+                    if (IsLevelCompleteDescriptionTextMesh(textMesh))
+                        ApplyPartDescriptionFont(textMesh);
+                    else ApplyPartFont(textMesh);
+                }
+                else if (IsShopTextMesh(textMesh) || IsLocalizedShopText(textMesh.text))
+                    ApplyPartFont(textMesh);
+                else if (IsLocalizedTransientStatusText(textMesh.text))
+                    ApplyPartFont(textMesh);
                 else if (IsRepositoryTextMesh(textMesh) || IsRepositoryStatusText(textMesh.text) ||
                     IsInventoryWheelTitleText(textMesh, textMesh.text) || IsPartNameText(textMesh.text))
                 {
@@ -1248,7 +1470,7 @@ public class ChineseLocalizationPlugin : IModPlugin
 
     private static Dictionary<string, string> LoadDialogueTranslations(string path)
     {
-        if (!File.Exists(path)) throw new FileNotFoundException("dialogue_translations.tsv missing", path);
+        if (!File.Exists(path)) throw new FileNotFoundException("Dialogue translation table missing", path);
         Dictionary<string, string> result = new Dictionary<string, string>(StringComparer.Ordinal);
         using (StreamReader reader = new StreamReader(path, System.Text.Encoding.UTF8, true))
         {
@@ -1261,7 +1483,13 @@ public class ChineseLocalizationPlugin : IModPlugin
                 string[] parts = line.Split(new char[] { '\t' }, 4);
                 if (parts.Length != 4) throw new Exception("Invalid dialogue translation row " + lineNumber);
                 string source = parts[2].Replace("\\n", "\n").TrimEnd();
-                result[source] = parts[3].Replace("\\n", "\n");
+                string translated = parts[3].Replace("\\n", "\n");
+                // Pure ASCII dialogue must keep the game's original Visitor
+                // font, material, spacing and authored line breaks. Registering
+                // an identity "translation" would route it through the merged
+                // Chinese dialogue font for no localization benefit.
+                if (!ContainsChinese(translated)) continue;
+                result[source] = translated;
             }
         }
         if (result.Count == 0) throw new Exception("No dialogue translations loaded");
@@ -1270,7 +1498,7 @@ public class ChineseLocalizationPlugin : IModPlugin
 
     private static void LoadAbilityTranslations(string path)
     {
-        if (!File.Exists(path)) throw new FileNotFoundException("ability_translations.tsv missing", path);
+        if (!File.Exists(path)) throw new FileNotFoundException("Ability translation table missing", path);
         _abilityTranslations = new Dictionary<string, string>(StringComparer.Ordinal);
         _localizedAbilityDescriptions = new Dictionary<string, bool>(StringComparer.Ordinal);
         using (StreamReader reader = new StreamReader(path, System.Text.Encoding.UTF8, true))
@@ -1554,6 +1782,30 @@ public class ChineseLocalizationPlugin : IModPlugin
             source.contentOffset.y + (useSmallFont ? SmallLocalizedTextYOffset : LocalizedTextYOffset));
         _renderStyles[source] = result;
         return result;
+    }
+
+    private static GUIStyle GetLocalizedRenderStyle(string originalText, GUIStyle source)
+    {
+        if (!IsModListEntry(originalText)) return GetRenderStyle(source);
+
+        GUIStyle result;
+        if (_modListRenderStyles.TryGetValue(source, out result)) return result;
+        result = new GUIStyle(GetRenderStyle(source));
+
+        // The localized baseline is already correct.  The selected
+        // fakeButtonStyle merely clips the taller composite glyphs, so only
+        // relax clipping here; do not replace the established contentOffset.
+        result.clipping = TextClipping.Overflow;
+
+        _modListRenderStyles[source] = result;
+        return result;
+    }
+
+    private static bool IsModListEntry(string text)
+    {
+        return text != null &&
+            (text.StartsWith("[ON]", StringComparison.Ordinal) ||
+             text.StartsWith("[OFF]", StringComparison.Ordinal));
     }
 
     private static bool IsRightInputBindingOption(string text, Rect rect)

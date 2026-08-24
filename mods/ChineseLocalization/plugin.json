@@ -1,8 +1,9 @@
 {
   "id": "ChineseLocalization",
-  "name": "简体中文",
+  "name": "Simplified Chinese",
   "version": "1.0.0",
   "author": "PunchLoader Contributors",
   "entryType": "ChineseLocalizationPlugin",
-  "priority": 100
+  "priority": 100,
+  "requiresRestart": true
 }
