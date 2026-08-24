@@ -1,10 +1,10 @@
 # PunchLoader 分发与安装
 
-发布包包含安装器、原版程序集和随发行版提供的简体中文模组：
+发布流程生成三个相互独立的包：
 
-- `PunchLoader.Setup.exe`：单文件安装器，内嵌 Injector、PunchLoader 和 Mono.Cecil。
-- `Assembly-CSharp.dll`：受支持游戏版本的原版程序集，供修复、重装和卸载使用。
-- `Mods/ChineseLocalization/`：已编译的简体中文模组及其字体、译文和许可证。
+- `PunchLoader-v<版本>.zip`：干净的 ModLoader，只包含 Setup 和原版程序集。
+- `ChineseLocalization-v<版本>.zip`：独立简体中文模组，解压到游戏的 `Mods` 目录。
+- `PunchLoader-v<版本>-with-ChineseLocalization.zip`：可选整合包，同时提供 Loader 和简体中文模组。
 
 用户将两个文件放到 `MegabytePunch.exe` 所在目录，双击 Setup 即可。安装器会：
 
@@ -30,5 +30,5 @@ PunchLoader.Setup.exe uninstall
 powershell -ExecutionPolicy Bypass -File scripts\package_release.ps1 -Version 1.0.0
 ```
 
-未压缩的发布目录写入 `dist/unpacked/PunchLoader-v<版本>/`，最终 ZIP 直接写入
-`dist/PunchLoader-v<版本>.zip`。ZIP 解压后可直接覆盖到游戏根目录。
+未压缩的三个发布目录统一写入 `dist/unpacked/`，三个最终 ZIP 直接写入 `dist/`
+根目录。标准 PunchLoader 包始终不携带任何第三方或示例模组。
