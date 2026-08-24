@@ -1,0 +1,41 @@
+# 世界观、角色、势力与自造词
+Megac
+Megacs
+Leon
+Bouldar
+HB-02
+Ventu
+Valk
+Khotep
+Khoteps
+Scarb
+Doro
+Kheprion
+Khepriogram
+
+# 游戏资源与单键提示
+Bits
+A
+B
+X
+Y
+Z
+RT
+LT
+Ctrl
+Shift
+
+# 口头禅、拟声与外语表达
+Zwap
+Zwaaaap
+Mmmrblmbmrrm
+rmblm
+HGNNN
+HUUUUOOOOAAAAAAH
+HUUUUUUUOOOOOAAAAA-AAAAAAH
+Bo0oo00oo
+Verdorie
+Amigo
+
+# 地址
+www.megabytepunch.com
