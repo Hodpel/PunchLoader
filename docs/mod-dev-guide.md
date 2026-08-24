@@ -3,7 +3,7 @@
 ## 目录结构
 
 ```markdown
-{游戏目录}/MegabytePunch_Data/Mods/
+{游戏目录}/Mods/
 └── YourModName/
     ├── plugin.json        ← mod 清单
     ├── YourMod.dll        ← 编译产物
@@ -19,7 +19,8 @@
     "version": "1.0.0",
     "author": "You",
     "entryType": "YourMod.EntryClass",
-    "priority": 0
+    "priority": 0,
+    "requiresRestart": false
 }
 ```
 
@@ -28,6 +29,7 @@
 | `id` | 唯一标识符 |
 | `entryType` | 实现了 `IModPlugin` 的完整类型名（含命名空间） |
 | `priority` | 加载顺序，越小越先（默认 0） |
+| `requiresRestart` | 为 `true` 时，启用和关闭只保存配置，重启游戏后生效（默认 `false`） |
 
 ## 实现 IModPlugin
 

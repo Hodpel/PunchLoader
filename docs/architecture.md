@@ -14,7 +14,7 @@
 │ 框架层 — 提供:                                │
 │  - HookDispatcher: IL 层固定桩（被 Injector）  │
 │  - HookManager: 运行时回调注册表               │
-│  - ModLoaderBehaviour: 扫描 Mods/ 目录        │
+│  - ModLoaderBehaviour: 扫描游戏根目录 Mods/   │
 │  - ModListMenu: 主菜单注入 "mods" 按钮         │
 ├──────────────────────────────────────────────┤
 │           Mod dll (如 ChineseLoc.dll)          │

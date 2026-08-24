@@ -7,6 +7,7 @@ param(
     [string]$GameDir = "F:\Codex\MBP_PROJ\ModdedGame"
 )
 
+$ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 
 $managed = "$GameDir\MegabytePunch_Data\Managed"
@@ -25,7 +26,7 @@ Copy-Item "$root\deps\Cecil\Mono.Cecil.Mdb.dll" "$managed\"
 Write-Host "Deployed Injector.exe + Cecil"
 
 $modSource = "$root\mods\ChineseLocalization"
-$modTarget = "$GameDir\MegabytePunch_Data\Mods\ChineseLocalization"
+$modTarget = "$GameDir\Mods\ChineseLocalization"
 if (-not (Test-Path "$modSource\ChineseLocalization.dll")) {
     Write-Host "ChineseLocalization.dll not found, run build_all.ps1 first"
     exit 1
@@ -33,23 +34,52 @@ if (-not (Test-Path "$modSource\ChineseLocalization.dll")) {
 New-Item -ItemType Directory -Force -Path $modTarget | Out-Null
 Copy-Item "$modSource\ChineseLocalization.dll" "$modTarget\ChineseLocalization.dll" -Force
 Copy-Item "$modSource\plugin.json" "$modTarget\plugin.json" -Force
-Copy-Item "$modSource\translations.tsv" "$modTarget\translations.tsv" -Force
-Copy-Item "$modSource\font_atlas.png" "$modTarget\font_atlas.png" -Force
-Copy-Item "$modSource\glyphs.tsv" "$modTarget\glyphs.tsv" -Force
-Copy-Item "$modSource\font_atlas_small.png" "$modTarget\font_atlas_small.png" -Force
-Copy-Item "$modSource\glyphs_small.tsv" "$modTarget\glyphs_small.tsv" -Force
-Copy-Item "$modSource\part_font_atlas.png" "$modTarget\part_font_atlas.png" -Force
-Copy-Item "$modSource\part_glyphs.tsv" "$modTarget\part_glyphs.tsv" -Force
-Copy-Item "$modSource\part_description_font_atlas.png" "$modTarget\part_description_font_atlas.png" -Force
-Copy-Item "$modSource\part_description_glyphs.tsv" "$modTarget\part_description_glyphs.tsv" -Force
-Copy-Item "$modSource\dialogue_font_atlas.png" "$modTarget\dialogue_font_atlas.png" -Force
-Copy-Item "$modSource\dialogue_glyphs.tsv" "$modTarget\dialogue_glyphs.tsv" -Force
-Copy-Item "$modSource\dialogue_translations.tsv" "$modTarget\dialogue_translations.tsv" -Force
-Copy-Item "$modSource\part_translations.tsv" "$modTarget\part_translations.tsv" -Force
-Copy-Item "$modSource\ability_translations.tsv" "$modTarget\ability_translations.tsv" -Force
 
-Copy-Item "$modSource\FONT_LICENSE.txt" "$modTarget\FONT_LICENSE.txt" -Force
-Copy-Item "$modSource\FONT_NOTICE.md" "$modTarget\FONT_NOTICE.md" -Force
+# Replace only the three managed resource directories.  Resolve and verify each
+# destination before recursive removal so deployment cannot escape this mod.
+$resolvedModTarget = [IO.Path]::GetFullPath($modTarget).TrimEnd('\') + '\'
+foreach ($directory in @('fonts', 'data', 'licenses')) {
+    $targetDirectory = [IO.Path]::GetFullPath((Join-Path $modTarget $directory))
+    if (-not $targetDirectory.StartsWith($resolvedModTarget,
+        [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Resource target escaped mod directory: $targetDirectory"
+    }
+    if (Test-Path -LiteralPath $targetDirectory) {
+        Remove-Item -LiteralPath $targetDirectory -Recurse -Force
+    }
+    Copy-Item -LiteralPath (Join-Path $modSource $directory) `
+        -Destination $targetDirectory -Recurse -Force
+}
+
+# `assets/fonts` was used briefly before the package was flattened.  Remove
+# that exact obsolete tree after validating it remains under this mod.
+$legacyAssets = [IO.Path]::GetFullPath((Join-Path $modTarget 'assets'))
+if (-not $legacyAssets.StartsWith($resolvedModTarget,
+    [StringComparison]::OrdinalIgnoreCase)) {
+    throw "Legacy assets target escaped mod directory: $legacyAssets"
+}
+if (Test-Path -LiteralPath $legacyAssets) {
+    Remove-Item -LiteralPath $legacyAssets -Recurse -Force
+}
+
+# Remove files deployed by pre-consolidation versions.  These exact names are
+# no longer read by the mod; leaving them behind makes package inspection
+# misleading and can mask an incomplete deployment.
+$legacyFiles = @(
+    'translations.tsv', 'dialogue_translations.tsv', 'part_translations.tsv',
+    'ability_translations.tsv', 'dialogue_wrap_blocks.txt',
+    'dialogue_wrap_overrides.tsv', 'font_atlas.png', 'glyphs.tsv',
+    'font_atlas_small.png', 'glyphs_small.tsv', 'part_font_atlas.png',
+    'part_glyphs.tsv', 'dialogue_font_atlas.png', 'dialogue_glyphs.tsv',
+    'part_description_font_atlas.png', 'part_description_glyphs.tsv',
+    'FONT_LICENSE.txt', 'FONT_NOTICE.md', 'ZLABS_LICENSE.txt'
+)
+foreach ($file in $legacyFiles) {
+    $legacyPath = Join-Path $modTarget $file
+    if (Test-Path -LiteralPath $legacyPath) {
+        Remove-Item -LiteralPath $legacyPath -Force
+    }
+}
 Write-Host "Deployed ChineseLocalization mod"
 
 Write-Host "=== Done ==="

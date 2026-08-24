@@ -30,7 +30,8 @@ namespace PunchLoader
         public IModPlugin Plugin;  // 实例化后的 mod 对象
         public Assembly Assembly;  // mod 的 dll 程序集
         public bool Loaded;        // 是否已调用 OnLoad()
-        public bool Enabled = true;// 是否启用（ModsSubMenu 可切换）
+        public bool Enabled = true;// 期望启用状态（会持久化到 mod-state.json）
+        public bool RequiresRestart;// 切换状态后是否必须重启游戏才生效
     }
 
     // ====================================================================
@@ -120,6 +121,45 @@ namespace PunchLoader
             }
             return def;
         }
+
+        public static bool GetBool(Dictionary<string, string> obj, string key, bool def)
+        {
+            string val;
+            if (obj.TryGetValue(key, out val))
+            {
+                bool r;
+                if (bool.TryParse(val, out r))
+                    return r;
+            }
+            return def;
+        }
+    }
+
+    // ====================================================================
+    // ModPaths: PunchLoader 与各模组共享的标准目录
+    // Mods/ 与游戏 exe 同级，不写入 Unity 生成的 *_Data 目录。
+    // ====================================================================
+    public static class ModPaths
+    {
+        public static string GameRoot
+        {
+            get
+            {
+                string dataPath = Path.GetFullPath(Application.dataPath);
+                DirectoryInfo parent = Directory.GetParent(dataPath);
+                return parent != null ? parent.FullName : dataPath;
+            }
+        }
+
+        public static string ModsPath
+        {
+            get { return Path.Combine(GameRoot, "Mods"); }
+        }
+
+        public static string GetModDirectory(string modId)
+        {
+            return Path.Combine(ModsPath, modId);
+        }
     }
 
     // ====================================================================
@@ -154,13 +194,16 @@ namespace PunchLoader
 
     // ====================================================================
     // ModLoaderBehaviour: mod 加载器
-    // Awake() 扫描 Application.dataPath/Mods/ 下每个子目录
+    // Awake() 扫描游戏根目录 Mods/ 下每个子目录
     // 找到 plugin.json → 解析 → 加载 .dll → 实例化 IModPlugin → 调用 OnLoad()
     // 按 Priority 升序加载（越小越先）
     // ====================================================================
     public class ModLoaderBehaviour : MonoBehaviour
     {
         private List<ModInfo> _mods = new List<ModInfo>();
+        private Dictionary<string, bool> _enabledStates =
+            new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        private string _statePath;
         private bool _initialized;
 
         public List<ModInfo> Mods { get { return _mods; } }
@@ -187,9 +230,10 @@ namespace PunchLoader
 
         public void LoadAllMods()
         {
-            // 路径: {游戏目录}/MegabytePunch_Data/Mods/
-            string modsPath = Path.Combine(Application.dataPath, "Mods");
+            // 路径: {游戏目录}/Mods/
+            string modsPath = ModPaths.ModsPath;
             modsPath = Path.GetFullPath(modsPath);
+            _statePath = Path.Combine(modsPath, "mod-state.json");
             Debug.Log("[PunchLoader] Scanning: " + modsPath);
 
             if (!Directory.Exists(modsPath))
@@ -198,6 +242,8 @@ namespace PunchLoader
                 Debug.Log("[PunchLoader] Created Mods/ folder");
                 return;
             }
+
+            LoadEnabledStates();
 
             string[] subDirs = Directory.GetDirectories(modsPath);
             Debug.Log("[PunchLoader] Found " + subDirs.Length + " subdirectories");
@@ -217,6 +263,11 @@ namespace PunchLoader
             // 阶段2: 按序调用 OnLoad()
             foreach (ModInfo mod in _mods)
             {
+                if (!mod.Enabled)
+                {
+                    Debug.Log("[PunchLoader] Disabled by configuration: " + mod.Name);
+                    continue;
+                }
                 try
                 {
                     mod.Plugin.OnLoad();
@@ -227,6 +278,108 @@ namespace PunchLoader
                 {
                     Debug.LogError("[PunchLoader] OnLoad failed: " + mod.Name + " - " + ex);
                 }
+            }
+        }
+
+        private void LoadEnabledStates()
+        {
+            _enabledStates.Clear();
+            if (string.IsNullOrEmpty(_statePath) || !File.Exists(_statePath))
+                return;
+
+            try
+            {
+                string json = File.ReadAllText(_statePath, Encoding.UTF8);
+                Dictionary<string, string> states = SimpleJson.ParseObject(json);
+                foreach (KeyValuePair<string, string> state in states)
+                {
+                    bool enabled;
+                    if (bool.TryParse(state.Value, out enabled))
+                        _enabledStates[state.Key] = enabled;
+                }
+                Debug.Log("[PunchLoader] Loaded mod states: " + _statePath);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning("[PunchLoader] Could not read mod states: " + ex.Message);
+            }
+        }
+
+        private bool GetConfiguredEnabled(string id)
+        {
+            bool enabled;
+            if (!string.IsNullOrEmpty(id) && _enabledStates.TryGetValue(id, out enabled))
+                return enabled;
+            return true;
+        }
+
+        private void SaveEnabledStates()
+        {
+            if (string.IsNullOrEmpty(_statePath)) return;
+            string tempPath = _statePath + ".tmp";
+            try
+            {
+                StringBuilder content = new StringBuilder();
+                content.AppendLine("{");
+                bool first = true;
+                foreach (ModInfo mod in _mods)
+                {
+                    if (string.IsNullOrEmpty(mod.Id)) continue;
+                    if (!first) content.AppendLine(",");
+                    content.Append("  \"");
+                    content.Append(EscapeJsonString(mod.Id));
+                    content.Append("\": ");
+                    content.Append(mod.Enabled ? "true" : "false");
+                    first = false;
+                }
+                content.AppendLine();
+                content.AppendLine("}");
+                File.WriteAllText(tempPath, content.ToString(), Encoding.UTF8);
+                File.Copy(tempPath, _statePath, true);
+                File.Delete(tempPath);
+                Debug.Log("[PunchLoader] Saved mod states: " + _statePath);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning("[PunchLoader] Could not save mod states: " + ex.Message);
+            }
+        }
+
+        private static string EscapeJsonString(string value)
+        {
+            return value.Replace("\\", "\\\\").Replace("\"", "\\\"");
+        }
+
+        public void SetModEnabled(ModInfo mod, bool enabled)
+        {
+            if (mod == null || mod.Plugin == null || mod.Enabled == enabled) return;
+
+            mod.Enabled = enabled;
+            SaveEnabledStates();
+
+            if (mod.RequiresRestart)
+            {
+                Debug.Log("[PunchLoader] " + mod.Name + " will be " +
+                    (enabled ? "enabled" : "disabled") + " after restart");
+                return;
+            }
+
+            try
+            {
+                if (enabled && !mod.Loaded)
+                {
+                    mod.Plugin.OnLoad();
+                    mod.Loaded = true;
+                }
+                else if (!enabled && mod.Loaded)
+                {
+                    mod.Plugin.OnUnload();
+                    mod.Loaded = false;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError("[PunchLoader] State change failed: " + mod.Name + " - " + ex);
             }
         }
 
@@ -252,6 +405,7 @@ namespace PunchLoader
             if (data.TryGetValue("version", out strVal)) info.Version = strVal;
             if (data.TryGetValue("author", out strVal)) info.Author = strVal;
             info.Priority = SimpleJson.GetInt(data, "priority", 0);
+            info.RequiresRestart = SimpleJson.GetBool(data, "requiresRestart", false);
 
             // 遍历该目录下所有 .dll，找到包含 entryType 的那个
             string[] dlls = Directory.GetFiles(dir, "*.dll");
@@ -271,6 +425,10 @@ namespace PunchLoader
                             continue;
                         }
                         info.Assembly = asm;
+                        if (string.IsNullOrEmpty(info.Id)) info.Id = info.Plugin.GetId();
+                        if (string.IsNullOrEmpty(info.Name)) info.Name = info.Plugin.GetName();
+                        if (string.IsNullOrEmpty(info.Version)) info.Version = info.Plugin.GetVersion();
+                        info.Enabled = GetConfiguredEnabled(info.Id);
                         _mods.Add(info);
                         Debug.Log("[PunchLoader] Discovered: " + (info.Name ?? info.Id));
                         return;
@@ -423,7 +581,7 @@ namespace PunchLoader
             if (inGamePauseField != null)
                 inGamePauseField.SetValue(subMenu, inGamePauseField.GetValue(_mainMenuInstance));
 
-            subMenu.Init(mods);
+            subMenu.Init(mods, loader);
 
             _modsSubMenuObj = subMenu;
 
@@ -636,12 +794,14 @@ namespace PunchLoader
     public class ModsSubMenuScript : GUILayoutMenuScript
     {
         private List<ModInfo> _mods;
+        private ModLoaderBehaviour _loader;
         private int _page;      // 当前页码（0-based）
         private int _perPage;   // 每页显示数量（根据屏幕高度动态计算）
 
-        public void Init(List<ModInfo> mods)
+        public void Init(List<ModInfo> mods, ModLoaderBehaviour loader)
         {
             _mods = mods ?? new List<ModInfo>();
+            _loader = loader;
 
             // 复用原生菜单布局参数
             largestButtonSize = 700;     // 按钮区域宽度
@@ -680,6 +840,22 @@ namespace PunchLoader
             }
         }
 
+        // Mod rows contain state, name, version and optional restart status.
+        // The regular button face was designed for short main-menu actions and
+        // clips these metadata rows at common resolutions.  Use the game's own
+        // small button pair; the base overload automatically selects
+        // fakeSmallButtonStyle for the highlighted row.
+        protected override void DrawButton(string str)
+        {
+            bool modEntry = str != null &&
+                (str.StartsWith("[ON]", StringComparison.Ordinal) ||
+                 str.StartsWith("[OFF]", StringComparison.Ordinal));
+            if (modEntry && GUIData != null && GUIData.smallButtonStyle != null)
+                DrawButton(str, GUIData.smallButtonStyle);
+            else
+                base.DrawButton(str);
+        }
+
         // 重建当前页的 menuEntries
         void BuildPage()
         {
@@ -696,9 +872,12 @@ namespace PunchLoader
             {
                 ModInfo m = _mods[i];
                 string state = m.Enabled ? "[ON]" : "[OFF]";
+                if (m.RequiresRestart && m.Enabled != m.Loaded)
+                    state += "*";
                 string name = m.Name ?? m.Id ?? "?";
                 string ver = m.Version ?? "?";
-                entries.Add(state + "  " + name + "  v" + ver);
+                string restart = m.RequiresRestart ? "  [RESTART]" : "";
+                entries.Add(state + "  " + name + "  v" + ver + restart);
             }
 
             // 翻页按钮（放在 mod 列表和 back 之间）
@@ -747,21 +926,12 @@ namespace PunchLoader
             else
             {
                 // 点击 mod 条目: 切换 enabled 状态
-                int modIdx = (int)(selected);
+                int modIdx = _page * _perPage + (int)(selected);
                 if (modIdx >= 0 && modIdx < _mods.Count)
                 {
                     ModInfo m = _mods[modIdx];
-                    m.Enabled = !m.Enabled;
-                    if (m.Enabled)
-                    {
-                        try { m.Plugin.OnLoad(); }
-                        catch { }
-                    }
-                    else
-                    {
-                        try { m.Plugin.OnUnload(); }
-                        catch { }
-                    }
+                    if (_loader != null)
+                        _loader.SetModEnabled(m, !m.Enabled);
                     BuildPage();
                 }
                 actionDecided = false;
