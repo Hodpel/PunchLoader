@@ -1,0 +1,8 @@
+/nologo
+/target:exe
+/out:build\PunchLoader.Setup.exe
+/main:PunchLoaderSetup
+/resource:build\Injector.exe,PunchLoader.Setup.Injector.exe
+/resource:build\PunchLoader.dll,PunchLoader.Setup.PunchLoader.dll
+/resource:deps\Cecil\Mono.Cecil.dll,PunchLoader.Setup.Mono.Cecil.dll
+src\setup\PunchLoaderSetup.cs

@@ -1,5 +1,6 @@
 # 编译产物
 build/
+dist/
 *.exe
 *.dll
 *.pdb
@@ -12,6 +13,8 @@ build/
 *.csproj.user
 [Dd]ebug/
 [Rr]elease/
+__pycache__/
+*.py[cod]
 
 # OS
 Thumbs.db
@@ -24,5 +27,5 @@ Game/
 *.orig
 *.backup
 
-# 项目内零时工具（不提交）
+# 项目内临时工具（不提交）
 setup.ps1

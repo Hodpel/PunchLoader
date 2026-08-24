@@ -17,21 +17,45 @@ using CecilCil = Mono.Cecil.Cil;
 public class Injector
 {
     // === 路径配置 ===
-    const string GAME_MANAGED = "F:/Codex/MBP_PROJ/ModdedGame/MegabytePunch_Data/Managed";
-    const string TARGET_DLL = GAME_MANAGED + "/Assembly-CSharp.dll";
-    const string BACKUP_DLL = GAME_MANAGED + "/Assembly-CSharp.dll.orig";
-    const string PUNCHLOADER_DLL = GAME_MANAGED + "/PunchLoader.dll";
+    static string GAME_MANAGED = "F:/Codex/MBP_PROJ/ModdedGame/MegabytePunch_Data/Managed";
+    static string TARGET_DLL = GAME_MANAGED + "/Assembly-CSharp.dll";
+    static string BACKUP_DLL = GAME_MANAGED + "/Assembly-CSharp.dll.orig";
+    static string PUNCHLOADER_DLL = GAME_MANAGED + "/PunchLoader.dll";
 
     static int Main(string[] args)
     {
         try
         {
+            if (args.Length == 2 && args[0] == "--inspect")
+                return InspectAssembly(args[1], true);
+
+            bool directPatch = args.Length == 5 && args[0] == "--patch";
+            string outputDll = TARGET_DLL;
+            if (directPatch)
+            {
+                TARGET_DLL = Path.GetFullPath(args[1]);
+                outputDll = Path.GetFullPath(args[2]);
+                PUNCHLOADER_DLL = Path.GetFullPath(args[3]);
+                GAME_MANAGED = Path.GetFullPath(args[4]);
+                BACKUP_DLL = null;
+            }
+            else if (args.Length != 0)
+            {
+                Console.WriteLine("Usage:");
+                Console.WriteLine("  Injector.exe --inspect <Assembly-CSharp.dll>");
+                Console.WriteLine("  Injector.exe --patch <source.dll> <output.dll> <PunchLoader.dll> <ManagedDir>");
+                return 2;
+            }
+
             // === 步骤0: 备份原版 dll ===
             // ba只备份一次; 后续运行从 .orig 还原再注入（可重复运行 Injector）
-            if (!File.Exists(BACKUP_DLL))
-                File.Copy(TARGET_DLL, BACKUP_DLL);
-            else
-                File.Copy(BACKUP_DLL, TARGET_DLL, true);
+            if (!directPatch)
+            {
+                if (!File.Exists(BACKUP_DLL))
+                    File.Copy(TARGET_DLL, BACKUP_DLL);
+                else
+                    File.Copy(BACKUP_DLL, TARGET_DLL, true);
+            }
 
             // === 步骤1: 读取目标程序集 ===
             Cecil.AssemblyDefinition asm = Cecil.AssemblyDefinition.ReadAssembly(TARGET_DLL,
@@ -129,7 +153,10 @@ public class Injector
             InjectTextMeshSetTextHooks(asm);
 
             // === 步骤8: 写回修改后的 dll ===
-            asm.Write(TARGET_DLL);
+            asm.Write(outputDll);
+            int state = InspectAssembly(outputDll, false);
+            if (state != 10)
+                throw new Exception("Post-write verification failed; state code=" + state);
             Console.WriteLine("[Injector] Done.");
             return 0;
         }
@@ -385,5 +412,92 @@ public class Injector
             }
         }
         return null;
+    }
+
+    // Exit codes are intentionally distinct so the setup program can make a
+    // decision without parsing localized console text:
+    //   0  = clean/original, 10 = fully injected, 11 = partially injected,
+    //   4  = unreadable or not a managed assembly.
+    static int InspectAssembly(string assemblyPath, bool verbose)
+    {
+        try
+        {
+            if (!File.Exists(assemblyPath))
+            {
+                if (verbose) Console.WriteLine("STATE=INVALID\nREASON=FILE_NOT_FOUND");
+                return 4;
+            }
+
+            bool marker = false;
+            int preDoAction = 0;
+            int onBeginGui = 0;
+            int guiLayoutLabel = 0;
+            int setTextMeshText = 0;
+
+            Cecil.AssemblyDefinition asm = Cecil.AssemblyDefinition.ReadAssembly(
+                assemblyPath, new Cecil.ReaderParameters { ReadSymbols = false });
+            foreach (Cecil.TypeDefinition type in asm.MainModule.Types)
+                InspectType(type, ref marker, ref preDoAction, ref onBeginGui,
+                    ref guiLayoutLabel, ref setTextMeshText);
+
+            bool any = marker || preDoAction > 0 || onBeginGui > 0 ||
+                guiLayoutLabel > 0 || setTextMeshText > 0;
+            bool complete = marker && preDoAction > 0 && onBeginGui > 0 &&
+                guiLayoutLabel > 0 && setTextMeshText > 0;
+            int result = complete ? 10 : (any ? 11 : 0);
+
+            if (verbose)
+            {
+                Console.WriteLine("STATE=" + (complete ? "INJECTED" : (any ? "PARTIAL" : "ORIGINAL")));
+                Console.WriteLine("MARKER=" + (marker ? "1" : "0"));
+                Console.WriteLine("PRE_DO_ACTION=" + preDoAction);
+                Console.WriteLine("ON_BEGIN_GUI=" + onBeginGui);
+                Console.WriteLine("GUI_LAYOUT_LABEL=" + guiLayoutLabel);
+                Console.WriteLine("SET_TEXT_MESH_TEXT=" + setTextMeshText);
+            }
+            return result;
+        }
+        catch (Exception ex)
+        {
+            if (verbose)
+            {
+                Console.WriteLine("STATE=INVALID");
+                Console.WriteLine("REASON=" + ex.GetType().Name + ": " + ex.Message);
+            }
+            return 4;
+        }
+    }
+
+    static void InspectType(Cecil.TypeDefinition type, ref bool marker,
+        ref int preDoAction, ref int onBeginGui, ref int guiLayoutLabel,
+        ref int setTextMeshText)
+    {
+        foreach (Cecil.MethodDefinition method in type.Methods)
+        {
+            if (!method.HasBody) continue;
+            foreach (CecilCil.Instruction instruction in method.Body.Instructions)
+            {
+                if (instruction.OpCode == CecilCil.OpCodes.Ldstr &&
+                    string.Equals(instruction.Operand as string, "[PunchLoader] booting...",
+                        StringComparison.Ordinal))
+                    marker = true;
+
+                if ((instruction.OpCode != CecilCil.OpCodes.Call &&
+                     instruction.OpCode != CecilCil.OpCodes.Callvirt) ||
+                    !(instruction.Operand is Cecil.MethodReference))
+                    continue;
+
+                Cecil.MethodReference called = (Cecil.MethodReference)instruction.Operand;
+                if (called.DeclaringType.FullName != "PunchLoader.HookDispatcher") continue;
+                if (called.Name == "PreDoAction") preDoAction++;
+                else if (called.Name == "OnBeginGUI") onBeginGui++;
+                else if (called.Name == "GUILayoutLabel") guiLayoutLabel++;
+                else if (called.Name == "SetTextMeshText") setTextMeshText++;
+            }
+        }
+
+        foreach (Cecil.TypeDefinition nested in type.NestedTypes)
+            InspectType(nested, ref marker, ref preDoAction, ref onBeginGui,
+                ref guiLayoutLabel, ref setTextMeshText);
     }
 }
