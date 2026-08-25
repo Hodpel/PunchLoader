@@ -1,5 +1,5 @@
 ﻿param(
-    [string]$Version = '1.0.0',
+    [string]$Version = '1.0.1',
     [string]$Csc = 'C:\Windows\Microsoft.NET\Framework\v3.5\csc.exe'
 )
 
@@ -33,6 +33,10 @@ Ensure-Directory (Join-Path $root 'build\mods\ChineseLocalization')
 & $Csc '@mods\ChineseLocalization\build.rsp'
 if ($LASTEXITCODE -ne 0) { throw "ChineseLocalization build failed: $LASTEXITCODE" }
 
+Ensure-Directory (Join-Path $root 'build\mods\ContentUnlocker')
+& $Csc '@mods\ContentUnlocker\build.rsp'
+if ($LASTEXITCODE -ne 0) { throw "ContentUnlocker build failed: $LASTEXITCODE" }
+
 $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $original).Hash
 if ($actual -ne $expectedOriginal) {
     throw "Original Assembly-CSharp.dll hash mismatch: $actual"
@@ -41,13 +45,22 @@ if ($actual -ne $expectedOriginal) {
 $dist = Join-Path $root 'dist'
 $unpacked = Join-Path $dist 'unpacked'
 $loaderName = "PunchLoader-v" + $Version
-$localizationName = "ChineseLocalization-v" + $Version
+$localizationVersion = (Get-Content -LiteralPath `
+    (Join-Path $root 'mods\ChineseLocalization\plugin.json') -Raw |
+    ConvertFrom-Json).version
+$unlockerVersion = (Get-Content -LiteralPath `
+    (Join-Path $root 'mods\ContentUnlocker\plugin.json') -Raw |
+    ConvertFrom-Json).version
+$localizationName = "ChineseLocalization-v" + $localizationVersion
+$unlockerName = "ContentUnlocker-v" + $unlockerVersion
 $combinedName = $loaderName + '-with-ChineseLocalization'
 $loaderFolder = Join-Path $unpacked $loaderName
 $localizationFolder = Join-Path $unpacked $localizationName
+$unlockerFolder = Join-Path $unpacked $unlockerName
 $combinedFolder = Join-Path $unpacked $combinedName
 $loaderZip = Join-Path $dist ($loaderName + '.zip')
 $localizationZip = Join-Path $dist ($localizationName + '.zip')
+$unlockerZip = Join-Path $dist ($unlockerName + '.zip')
 $combinedZip = Join-Path $dist ($combinedName + '.zip')
 $legacyFolder = Join-Path $dist $loaderName
 
@@ -55,7 +68,8 @@ Ensure-Directory $dist
 Ensure-Directory $unpacked
 
 $resolvedDist = [IO.Path]::GetFullPath($dist).TrimEnd('\') + '\'
-foreach ($candidate in @($loaderFolder, $localizationFolder, $combinedFolder, $legacyFolder)) {
+foreach ($candidate in @($loaderFolder, $localizationFolder, $unlockerFolder,
+    $combinedFolder, $legacyFolder)) {
     $resolvedCandidate = [IO.Path]::GetFullPath($candidate)
     if (-not $resolvedCandidate.StartsWith($resolvedDist,
         [StringComparison]::OrdinalIgnoreCase)) {
@@ -67,7 +81,7 @@ foreach ($candidate in @($loaderFolder, $localizationFolder, $combinedFolder, $l
     }
 }
 
-foreach ($zip in @($loaderZip, $localizationZip, $combinedZip)) {
+foreach ($zip in @($loaderZip, $localizationZip, $unlockerZip, $combinedZip)) {
     if (Test-Path -LiteralPath $zip) {
         Remove-Item -LiteralPath $zip -Force
         Wait-ReleasePathRemoved $zip
@@ -98,6 +112,18 @@ function Copy-ChineseLocalization([string]$Target) {
 $standaloneMod = Join-Path $localizationFolder 'ChineseLocalization'
 Copy-ChineseLocalization $standaloneMod
 
+# 隐藏内容解锁器独立包：不混入标准 Loader 或汉化整合包。
+$unlockerSource = Join-Path $root 'mods\ContentUnlocker'
+$unlockerBinary = Join-Path $root 'build\mods\ContentUnlocker\ContentUnlocker.dll'
+$standaloneUnlocker = Join-Path $unlockerFolder 'ContentUnlocker'
+Ensure-Directory $standaloneUnlocker
+Copy-Item -LiteralPath $unlockerBinary `
+    -Destination (Join-Path $standaloneUnlocker 'ContentUnlocker.dll') -Force
+Copy-Item -LiteralPath (Join-Path $unlockerSource 'plugin.json') `
+    -Destination (Join-Path $standaloneUnlocker 'plugin.json') -Force
+Copy-Item -LiteralPath (Join-Path $unlockerSource 'README.md') `
+    -Destination (Join-Path $standaloneUnlocker 'README.md') -Force
+
 # 可选整合包：同时包含干净 Loader 安装文件和 Mods/ChineseLocalization。
 Ensure-Directory $combinedFolder
 Copy-Item -LiteralPath (Join-Path $loaderFolder 'PunchLoader.Setup.exe') -Destination $combinedFolder -Force
@@ -106,9 +132,11 @@ Copy-ChineseLocalization (Join-Path $combinedFolder 'Mods\ChineseLocalization')
 
 Compress-Archive -Path (Join-Path $loaderFolder '*') -DestinationPath $loaderZip
 Compress-Archive -Path (Join-Path $localizationFolder '*') -DestinationPath $localizationZip
+Compress-Archive -Path (Join-Path $unlockerFolder '*') -DestinationPath $unlockerZip
 Compress-Archive -Path (Join-Path $combinedFolder '*') -DestinationPath $combinedZip
 
 Write-Host "PunchLoader: $loaderZip"
 Write-Host "ChineseLocalization: $localizationZip"
+Write-Host "ContentUnlocker: $unlockerZip"
 Write-Host "Combined: $combinedZip"
 Write-Host "Unpacked: $unpacked"

@@ -7,7 +7,7 @@ using System.Text;
 
 public static class PunchLoaderSetup
 {
-    const string Version = "1.0.0";
+    const string Version = "1.0.1";
     // 已验证的 Megabyte Punch 原版程序集：历史零售版与 Steam 版。
     // 安装器只接受这两个完整文件哈希；不会把任意未注入 DLL 当作可注入版本。
     const string OriginalAssemblySha256 = "EF53EB7B6438422EA0C40C96C7CE698E03C164CC2B1E2A21F601DAF3DEDB8492";

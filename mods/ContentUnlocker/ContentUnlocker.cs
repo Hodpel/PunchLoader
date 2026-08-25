@@ -7,10 +7,11 @@ using UnityEngine;
 public sealed class ContentUnlockerPlugin : IModPlugin
 {
     private static ContentUnlockerBehaviour _behaviour;
+    private static TextMeshTextHandler _textMeshHandler;
 
     public string GetId() { return "ContentUnlocker"; }
     public string GetName() { return "Content Unlocker"; }
-    public string GetVersion() { return "0.2.0"; }
+    public string GetVersion() { return "0.3.0"; }
 
     public void OnLoad()
     {
@@ -19,12 +20,16 @@ public sealed class ContentUnlockerPlugin : IModPlugin
         UnityEngine.Object.DontDestroyOnLoad(host);
         _behaviour = (ContentUnlockerBehaviour)host.AddComponent(
             typeof(ContentUnlockerBehaviour));
+        _textMeshHandler = new TextMeshTextHandler(_behaviour.OnTextMeshText);
+        HookManager.Register(_textMeshHandler);
         Debug.Log("[ContentUnlocker] Loaded: 14 hidden colors and 7 hidden part variants " +
             "will be added to their repositories.");
     }
 
     public void OnUnload()
     {
+        if (_textMeshHandler != null) HookManager.Unregister(_textMeshHandler);
+        _textMeshHandler = null;
         if (_behaviour != null) UnityEngine.Object.Destroy(_behaviour.gameObject);
         _behaviour = null;
     }
@@ -75,14 +80,17 @@ public sealed class ContentUnlockerBehaviour : MonoBehaviour
     // the normal Emperor-set description IDs. Keep them out of the original
     // save collection so its 150-entry achievement threshold remains valid.
     private static readonly HiddenPart[] HiddenParts = new HiddenPart[] {
-        new HiddenPart("Skel_ValkEmperorArm"),
-        new HiddenPart("Skel_ValkEmperorTail"),
-        new HiddenPart("Skel_ValkEmperorUpperArm"),
-        new HiddenPart("Skel_ValkEmperorChest"),
         new HiddenPart("Skel_ValkEmperorHead"),
+        new HiddenPart("Skel_ValkEmperorChest"),
+        new HiddenPart("Skel_ValkEmperorArm"),
+        new HiddenPart("Skel_ValkEmperorUpperArm"),
         new HiddenPart("Skel_ValkEmperorHip"),
+        new HiddenPart("Skel_ValkEmperorTail"),
         new HiddenPart("Skel_ValkEmperorShld")
     };
+    // Match the selected-text yellow used by the original main menu.
+    private const string HiddenPartColorOpen = "<color=#FEFE00>";
+    private const string HiddenPartColorClose = "</color>";
 
     private Type _colorGuiType;
     private Type _colorEntryType;
@@ -99,6 +107,11 @@ public sealed class ContentUnlockerBehaviour : MonoBehaviour
     private MethodInfo _sortPartCollectionMethod;
     private MethodInfo _listPartsMethod;
     private bool _reportedPartsReady;
+    private FieldInfo _listEntriesField;
+    private FieldInfo _partPageInfoField;
+    private FieldInfo _colorPageInfoField;
+    private FieldInfo _atPageField;
+    private bool _synchronousListHookActive;
 
     private void Update()
     {
@@ -112,7 +125,7 @@ public sealed class ContentUnlockerBehaviour : MonoBehaviour
             Component gui = objects[i] as Component;
             if (gui == null || gui.gameObject == null || !gui.gameObject.activeInHierarchy)
                 continue;
-            ExtendColorRepository(gui);
+            ExtendColorRepository(gui, true);
         }
 
         UnityEngine.Object[] partObjects = Resources.FindObjectsOfTypeAll(
@@ -122,8 +135,67 @@ public sealed class ContentUnlockerBehaviour : MonoBehaviour
             Component gui = partObjects[i] as Component;
             if (gui == null || gui.gameObject == null ||
                 !gui.gameObject.activeInHierarchy) continue;
-            ExtendPartRepository(gui);
+            ExtendPartRepository(gui, true);
         }
+    }
+
+    // Assembly-CSharp's TextMesh setters are dispatched before Unity receives
+    // the text. Both repositories clear listEntries at the beginning of List(),
+    // after Init() has populated the original collection but before the first
+    // frame is rendered. Extending here prevents the original 15/3 page count
+    // from being visible for one frame.
+    public bool OnTextMeshText(TextMesh textMesh, string originalText)
+    {
+        if (_synchronousListHookActive || textMesh == null) return false;
+        if (!ResolveGameTypes()) return false;
+
+        if (!string.IsNullOrEmpty(originalText))
+        {
+            Component pageGui = FindGuiByTextMesh(textMesh, _collectionGuiType,
+                _partPageInfoField);
+            if (pageGui != null)
+            {
+                ApplyHiddenPartHighlights(pageGui);
+                return false;
+            }
+            pageGui = FindGuiByTextMesh(textMesh, _colorGuiType,
+                _colorPageInfoField);
+            if (pageGui != null) ApplyHiddenColorHighlights(pageGui);
+            return false;
+        }
+
+        Component gui = FindGuiByTextMesh(textMesh, _collectionGuiType,
+            _listEntriesField);
+        bool isPartRepository = gui != null;
+        if (gui == null) gui = FindGuiByTextMesh(textMesh, _colorGuiType,
+            _listEntriesField);
+        if (gui == null) return false;
+
+        _synchronousListHookActive = true;
+        try
+        {
+            if (isPartRepository) ExtendPartRepository(gui, false);
+            else ExtendColorRepository(gui, false);
+        }
+        finally
+        {
+            _synchronousListHookActive = false;
+        }
+        return false; // Preserve the original TextMesh assignment.
+    }
+
+    private static Component FindGuiByTextMesh(TextMesh textMesh, Type guiType,
+        FieldInfo textMeshField)
+    {
+        if (guiType == null || textMeshField == null) return null;
+        UnityEngine.Object[] objects = Resources.FindObjectsOfTypeAll(guiType);
+        for (int i = 0; i < objects.Length; i++)
+        {
+            Component gui = objects[i] as Component;
+            if (gui != null && object.ReferenceEquals(
+                textMeshField.GetValue(gui), textMesh)) return gui;
+        }
+        return null;
     }
 
     private bool ResolveGameTypes()
@@ -133,7 +205,9 @@ public sealed class ContentUnlockerBehaviour : MonoBehaviour
             _maxPagesField != null && _listMethod != null &&
             _entryNameField != null && _entryMaterialField != null &&
             _partCollectionField != null && _partMaxPagesField != null &&
-            _sortPartCollectionMethod != null && _listPartsMethod != null)
+            _sortPartCollectionMethod != null && _listPartsMethod != null &&
+            _listEntriesField != null && _partPageInfoField != null &&
+            _colorPageInfoField != null && _atPageField != null)
             return true;
         Assembly[] assemblies = AppDomain.CurrentDomain.GetAssemblies();
         for (int i = 0; i < assemblies.Length && _colorGuiType == null; i++)
@@ -164,15 +238,23 @@ public sealed class ContentUnlockerBehaviour : MonoBehaviour
             BindingFlags.NonPublic);
         _listPartsMethod = _collectionGuiType.GetMethod("List",
             BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        _listEntriesField = FindField(_collectionGuiType, "listEntries");
+        _partPageInfoField = _collectionGuiType.GetField("pageInfo",
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        _colorPageInfoField = _colorGuiType.GetField("pageInfo",
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        _atPageField = FindField(_collectionGuiType, "atPage");
 
         return _colorEntryType != null && _colorsField != null &&
             _maxPagesField != null && _listMethod != null &&
             _entryNameField != null && _entryMaterialField != null &&
             _partCollectionField != null && _partMaxPagesField != null &&
-            _sortPartCollectionMethod != null && _listPartsMethod != null;
+            _sortPartCollectionMethod != null && _listPartsMethod != null &&
+            _listEntriesField != null && _partPageInfoField != null &&
+            _colorPageInfoField != null && _atPageField != null;
     }
 
-    private void ExtendPartRepository(Component gui)
+    private void ExtendPartRepository(Component gui, bool refreshList)
     {
         ArrayList collection = _partCollectionField.GetValue(gui) as ArrayList;
         if (collection == null) return; // Init() has not run yet.
@@ -193,17 +275,27 @@ public sealed class ContentUnlockerBehaviour : MonoBehaviour
             collection.Add(resourceName);
             added++;
         }
-        if (added <= 0) return;
-
         try
         {
-            _sortPartCollectionMethod.Invoke(gui, null);
-            _partMaxPagesField.SetValue(gui,
-                Math.Max(1, (collection.Count + 9) / 10));
-            _listPartsMethod.Invoke(gui, null);
+            if (added > 0)
+            {
+                _sortPartCollectionMethod.Invoke(gui, null);
+                collection = _partCollectionField.GetValue(gui) as ArrayList;
+            }
+            bool orderChanged = MoveHiddenPartsToEnd(collection);
+            // SortCollectionByType replaces the private ArrayList instance.
+            // Always read it back before calculating pages or refreshing.
+            collection = _partCollectionField.GetValue(gui) as ArrayList;
+            if (collection == null) return;
+            int pages = Math.Max(1, (collection.Count + 9) / 10);
+            int previousPages = (int)_partMaxPagesField.GetValue(gui);
+            _partMaxPagesField.SetValue(gui, pages);
+            if (refreshList && (added > 0 || orderChanged || previousPages != pages))
+                _listPartsMethod.Invoke(gui, null);
+            if (added <= 0) return;
             Debug.Log("[ContentUnlocker] Added " + added +
                 " hidden part variants; repository now has " + collection.Count +
-                " entries across " + ((collection.Count + 9) / 10) + " pages.");
+                " entries across " + pages + " pages.");
             _reportedPartsReady = true;
         }
         catch (Exception ex)
@@ -213,7 +305,95 @@ public sealed class ContentUnlockerBehaviour : MonoBehaviour
         }
     }
 
-    private void ExtendColorRepository(Component gui)
+    private static bool MoveHiddenPartsToEnd(ArrayList collection)
+    {
+        if (collection == null) return false;
+        bool alreadyAtEnd = collection.Count >= HiddenParts.Length;
+        if (alreadyAtEnd)
+        {
+            int first = collection.Count - HiddenParts.Length;
+            for (int i = 0; i < HiddenParts.Length; i++)
+            {
+                if (!string.Equals(collection[first + i] as string,
+                    HiddenParts[i].ResourceName, StringComparison.Ordinal))
+                {
+                    alreadyAtEnd = false;
+                    break;
+                }
+            }
+        }
+        bool[] present = new bool[HiddenParts.Length];
+        for (int i = 0; i < HiddenParts.Length; i++)
+        {
+            while (collection.Contains(HiddenParts[i].ResourceName))
+            {
+                collection.Remove(HiddenParts[i].ResourceName);
+                present[i] = true;
+            }
+        }
+        for (int i = 0; i < HiddenParts.Length; i++)
+        {
+            if (present[i]) collection.Add(HiddenParts[i].ResourceName);
+        }
+        return !alreadyAtEnd;
+    }
+
+    private void ApplyHiddenPartHighlights(Component gui)
+    {
+        ArrayList collection = _partCollectionField.GetValue(gui) as ArrayList;
+        TextMesh listEntries = _listEntriesField.GetValue(gui) as TextMesh;
+        if (collection == null || listEntries == null) return;
+
+        int page = (int)_atPageField.GetValue(gui);
+        string rendered = (listEntries.text ?? string.Empty)
+            .Replace(HiddenPartColorOpen, string.Empty)
+            .Replace(HiddenPartColorClose, string.Empty);
+        string[] lines = rendered.Split(new char[] { '\n' });
+        bool changed = false;
+        for (int row = 0; row < 10 && row < lines.Length; row++)
+        {
+            int index = page * 10 + row;
+            if (index >= collection.Count) break;
+            if (!IsHiddenPartResource(collection[index] as string)) continue;
+            lines[row] = HiddenPartColorOpen + lines[row] + HiddenPartColorClose;
+            changed = true;
+        }
+        if (!changed) return;
+
+        listEntries.richText = true;
+        listEntries.text = string.Join("\n", lines);
+    }
+
+    private void ApplyHiddenColorHighlights(Component gui)
+    {
+        ArrayList colors = _colorsField.GetValue(gui) as ArrayList;
+        TextMesh listEntries = _listEntriesField.GetValue(gui) as TextMesh;
+        if (colors == null || listEntries == null) return;
+
+        int page = (int)_atPageField.GetValue(gui);
+        string rendered = (listEntries.text ?? string.Empty)
+            .Replace(HiddenPartColorOpen, string.Empty)
+            .Replace(HiddenPartColorClose, string.Empty);
+        string[] lines = rendered.Split(new char[] { '\n' });
+        bool changed = false;
+        for (int row = 0; row < 10 && row < lines.Length; row++)
+        {
+            int index = page * 10 + row;
+            if (index >= colors.Count) break;
+            object entry = colors[index];
+            if (entry == null || !_colorEntryType.IsInstanceOfType(entry)) continue;
+            string name = _entryNameField.GetValue(entry) as string;
+            if (!IsHiddenColorName(name)) continue;
+            lines[row] = HiddenPartColorOpen + lines[row] + HiddenPartColorClose;
+            changed = true;
+        }
+        if (!changed) return;
+
+        listEntries.richText = true;
+        listEntries.text = string.Join("\n", lines);
+    }
+
+    private void ExtendColorRepository(Component gui, bool refreshList)
     {
         ArrayList colors = _colorsField.GetValue(gui) as ArrayList;
         if (colors == null) return; // Init() has not run yet.
@@ -247,7 +427,7 @@ public sealed class ContentUnlockerBehaviour : MonoBehaviour
 
         try
         {
-            _listMethod.Invoke(gui, null);
+            if (refreshList) _listMethod.Invoke(gui, null);
             Debug.Log("[ContentUnlocker] Added " + added +
                 " hidden colors; repository now has " + colors.Count +
                 " entries across " + pages + " pages.");

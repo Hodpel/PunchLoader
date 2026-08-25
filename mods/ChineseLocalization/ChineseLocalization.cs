@@ -414,7 +414,18 @@ public class ChineseLocalizationPlugin : IModPlugin
 
         string translated;
         bool levelCompleteDescription;
-        if (TryTranslateBottomPrompt(originalText, out translated))
+        // ContentUnlocker marks hidden repository rows with Unity rich-text
+        // colour tags after the repository has generated/localized its list.
+        // Without this branch the already-localized multi-line list falls
+        // through to generic part-description handling, which switches it to
+        // the Visitor font and changes its established repository layout.
+        if (IsHighlightedRepositoryList(textMesh, originalText))
+        {
+            ApplyPartFont(textMesh);
+            textMesh.richText = true;
+            translated = originalText;
+        }
+        else if (TryTranslateBottomPrompt(originalText, out translated))
         {
             QueueBottomPrompt(textMesh, translated, GetBottomPromptKind(originalText));
             return true;
@@ -454,6 +465,19 @@ public class ChineseLocalizationPlugin : IModPlugin
             return false;
         textMesh.text = translated;
         return true;
+    }
+
+    private static bool IsHighlightedRepositoryList(TextMesh textMesh, string text)
+    {
+        if (textMesh == null || string.IsNullOrEmpty(text) ||
+            text.IndexOf("<color=#FEFE00>", StringComparison.OrdinalIgnoreCase) < 0)
+            return false;
+
+        if (IsRepositoryTextMesh(textMesh)) return true;
+        Transform root = textMesh.transform == null ? null : textMesh.transform.root;
+        if (root == null || root.gameObject == null) return false;
+        return root.gameObject.name.IndexOf("CollectionGUI",
+            StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
     private static bool TryTranslateTransientStatusText(string text, out string translated)
@@ -1381,7 +1405,9 @@ public class ChineseLocalizationPlugin : IModPlugin
             if (textMesh == null) continue;
             if (ContainsChinese(textMesh.text))
             {
-                if (IsBottomPromptText(textMesh.text)) ApplyMenuTextMeshFont(textMesh);
+                if (IsHighlightedRepositoryList(textMesh, textMesh.text))
+                    ApplyPartFont(textMesh);
+                else if (IsBottomPromptText(textMesh.text)) ApplyMenuTextMeshFont(textMesh);
                 else if (IsLevelCompleteTextMesh(textMesh))
                 {
                     if (IsLevelCompleteDescriptionTextMesh(textMesh))
