@@ -6,7 +6,7 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $expectedOriginal = 'EF53EB7B6438422EA0C40C96C7CE698E03C164CC2B1E2A21F601DAF3DEDB8492'
-$original = Join-Path $root 'deps\Game\Assembly-CSharp.dll'
+$original = Join-Path $root 'deps\Game\Retail\Assembly-CSharp.dll'
 
 function Ensure-Directory([string]$Path) {
     if ([IO.Directory]::Exists($Path)) { return }
@@ -29,6 +29,7 @@ function Wait-ReleasePathRemoved([string]$Path) {
 & (Join-Path $PSScriptRoot 'build_setup.ps1') -Csc $Csc
 if ($LASTEXITCODE -ne 0) { throw "Setup build failed: $LASTEXITCODE" }
 
+Ensure-Directory (Join-Path $root 'build\mods\ChineseLocalization')
 & $Csc '@mods\ChineseLocalization\build.rsp'
 if ($LASTEXITCODE -ne 0) { throw "ChineseLocalization build failed: $LASTEXITCODE" }
 
@@ -80,9 +81,10 @@ Copy-Item -LiteralPath (Join-Path $root 'build\PunchLoader.Setup.exe') `
 Copy-Item -LiteralPath $original -Destination (Join-Path $loaderFolder 'Assembly-CSharp.dll') -Force
 
 $modSource = Join-Path $root 'mods\ChineseLocalization'
+$modBinary = Join-Path $root 'build\mods\ChineseLocalization\ChineseLocalization.dll'
 function Copy-ChineseLocalization([string]$Target) {
     Ensure-Directory $Target
-    Copy-Item -LiteralPath (Join-Path $modSource 'ChineseLocalization.dll') `
+    Copy-Item -LiteralPath $modBinary `
         -Destination (Join-Path $Target 'ChineseLocalization.dll') -Force
     Copy-Item -LiteralPath (Join-Path $modSource 'plugin.json') `
         -Destination (Join-Path $Target 'plugin.json') -Force

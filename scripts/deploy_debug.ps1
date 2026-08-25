@@ -11,10 +11,11 @@ $root = Split-Path -Parent $PSScriptRoot
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 $source = "$root\mods\LocalizationDebug"
+$build = "$root\build\mods\LocalizationDebug\LocalizationDebug.dll"
 $target = "$GameDir\Mods\LocalizationDebug"
 
 New-Item -ItemType Directory -Force -Path $target | Out-Null
-Copy-Item "$source\LocalizationDebug.dll" "$target\LocalizationDebug.dll" -Force -ErrorAction Stop
+Copy-Item $build "$target\LocalizationDebug.dll" -Force -ErrorAction Stop
 Copy-Item "$source\plugin.json" "$target\plugin.json" -Force -ErrorAction Stop
 Copy-Item "$source\untranslated-allowlist.txt" "$target\untranslated-allowlist.txt" -Force -ErrorAction Stop
 Write-Host "Deployed LocalizationDebug mod to $target"

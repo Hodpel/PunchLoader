@@ -1,7 +1,7 @@
 /target:library
-/out:mods\ChineseLocalization\ChineseLocalization.dll
+/out:build\mods\ChineseLocalization\ChineseLocalization.dll
 /reference:deps\Unity\UnityEngine.dll
 /reference:build\PunchLoader.dll
-/reference:deps\Game\mscorlib.dll
+/reference:deps\Game\Common\mscorlib.dll
 /nostdlib
 mods\ChineseLocalization\ChineseLocalization.cs

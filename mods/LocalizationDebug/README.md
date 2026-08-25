@@ -17,6 +17,9 @@
 
 仅用于 PunchLoader 汉化开发和验收，不随正式构建或正式部署安装。
 
+编译出的 DLL 写入 `build/mods/LocalizationDebug/LocalizationDebug.dll`；本目录只保留
+源码、运行资源和开发说明。
+
 ## 热键
 
 - `F8`：打开或关闭调试面板。

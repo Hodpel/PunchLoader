@@ -26,13 +26,14 @@ Copy-Item "$root\deps\Cecil\Mono.Cecil.Mdb.dll" "$managed\"
 Write-Host "Deployed Injector.exe + Cecil"
 
 $modSource = "$root\mods\ChineseLocalization"
+$modBuild = "$root\build\mods\ChineseLocalization\ChineseLocalization.dll"
 $modTarget = "$GameDir\Mods\ChineseLocalization"
-if (-not (Test-Path "$modSource\ChineseLocalization.dll")) {
+if (-not (Test-Path $modBuild)) {
     Write-Host "ChineseLocalization.dll not found, run build_all.ps1 first"
     exit 1
 }
 New-Item -ItemType Directory -Force -Path $modTarget | Out-Null
-Copy-Item "$modSource\ChineseLocalization.dll" "$modTarget\ChineseLocalization.dll" -Force
+Copy-Item $modBuild "$modTarget\ChineseLocalization.dll" -Force
 Copy-Item "$modSource\plugin.json" "$modTarget\plugin.json" -Force
 
 # Replace only the three managed resource directories.  Resolve and verify each

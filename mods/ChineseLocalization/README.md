@@ -13,6 +13,9 @@ py -3.11 tools\build_font_atlas.py `
 C:\Windows\Microsoft.NET\Framework\v3.5\csc.exe @mods\ChineseLocalization\build.rsp
 ```
 
+编译出的 DLL 写入 `build/mods/ChineseLocalization/ChineseLocalization.dll`；模组源码目录只保留
+源码、运行资源和许可文件。
+
 构建产物按用途归入三个目录：
 
 ```text

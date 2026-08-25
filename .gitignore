@@ -6,6 +6,9 @@ dist/
 *.pdb
 *.mdb
 
+# 构建所需的明确版本依赖是源码的一部分；仅忽略其余本地 DLL 产物。
+!deps/**/*.dll
+
 # IDE
 .vs/
 *.suo
