@@ -1,7 +1,7 @@
 {
   "id": "LocalizationDebug",
   "name": "Localization Debug",
-  "version": "1.9.0",
+  "version": "1.10.0",
   "author": "PunchLoader Contributors",
   "entryType": "LocalizationDebugPlugin",
   "priority": -1000

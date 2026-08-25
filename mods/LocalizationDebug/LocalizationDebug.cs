@@ -14,7 +14,7 @@ public class LocalizationDebugPlugin : IModPlugin
 
     public string GetId() { return "LocalizationDebug"; }
     public string GetName() { return "Localization Debug"; }
-    public string GetVersion() { return "1.9.0"; }
+    public string GetVersion() { return "1.10.0"; }
 
     public void OnLoad()
     {
@@ -145,6 +145,29 @@ public sealed class LocalizationDebugBehaviour : MonoBehaviour
         public string Screenshot;
     }
 
+    private sealed class HiddenPaletteEntry
+    {
+        public string Name;
+        public string ResourceName;
+        public string RenderType;
+        public string KnownUse;
+
+        public HiddenPaletteEntry(string name, string resourceName, string renderType,
+            string knownUse)
+        {
+            Name = name;
+            ResourceName = resourceName;
+            RenderType = renderType;
+            KnownUse = knownUse;
+        }
+    }
+
+    private sealed class PartMaterialSnapshot
+    {
+        public Component Part;
+        public Material Material;
+    }
+
     private readonly Dictionary<int, TextEntry> _entries = new Dictionary<int, TextEntry>();
     private readonly Dictionary<int, TextEntry> _entriesByInstanceId = new Dictionary<int, TextEntry>();
     private readonly Dictionary<int, string> _pendingSources = new Dictionary<int, string>();
@@ -222,6 +245,40 @@ public sealed class LocalizationDebugBehaviour : MonoBehaviour
     private int _automaticInventoryStep;
     private bool _automaticInventoryAuditDone;
     private string _automaticOriginalInventoryState = string.Empty;
+    private readonly List<PartMaterialSnapshot> _paletteSnapshot =
+        new List<PartMaterialSnapshot>();
+    private int _hiddenPaletteIndex;
+    private string _activeHiddenPalette = string.Empty;
+    private static readonly HiddenPaletteEntry[] HiddenPalettes = new HiddenPaletteEntry[] {
+        new HiddenPaletteEntry("Army Green Yellow", "ArmyGreenYellowMat",
+            "标准卡通", "未登记且未发现外部引用"),
+        new HiddenPaletteEntry("Beige Bordeaux", "beigebordeauxMat",
+            "标准卡通", "Kachook 敌人和 paint NPC"),
+        new HiddenPaletteEntry("Beige Dark Orange", "beigedarkorangedarkMat",
+            "标准卡通", "ArenaFighter4"),
+        new HiddenPaletteEntry("Brown Orange", "brownorangeMat",
+            "标准卡通", "Psychic/Cupid 敌人"),
+        new HiddenPaletteEntry("Cyber Bone", "CyberBone",
+            "高光/金属", "FinalBossPhase2"),
+        new HiddenPaletteEntry("Drill Ability", "DrillAbilityColor",
+            "标准卡通", "钻头技能特效"),
+        new HiddenPaletteEntry("Final Boss", "FinalBossMat",
+            "标准卡通", "未登记且未发现外部引用"),
+        new HiddenPaletteEntry("Green Blue", "greenblueMat",
+            "标准卡通", "ArenaFighter3 和冰系敌人"),
+        new HiddenPaletteEntry("Light Green Beige", "lightgreenbeigeMat",
+            "标准卡通", "墙跳教程 NPC"),
+        new HiddenPaletteEntry("Orange Yellow 2", "orangeyellow2Mat",
+            "标准卡通", "冰系 Wrench 敌人"),
+        new HiddenPaletteEntry("Pink Brown", "pinkbrownMat",
+            "标准卡通", "未登记且未发现外部引用"),
+        new HiddenPaletteEntry("Purple Light Blue", "purplelightblueMat",
+            "标准卡通", "冰 Boss、NPC 和敌人"),
+        new HiddenPaletteEntry("Salmon Purple", "salmonpurpleMat",
+            "标准卡通", "宝箱、Dice 和敌人"),
+        new HiddenPaletteEntry("Turquoise Beige", "turqoisebeigeMat",
+            "标准卡通", "教程和冰系敌人")
+    };
     private static readonly string[] AutomaticInventoryStates = new string[] {
         "INVENTORY", "ATTACHMENT", "INVENTORY", "ABILITIES", "INVENTORY",
         "BREAKINTOBITS", "INVENTORY", "STATS", "INVENTORY"
@@ -285,6 +342,8 @@ public sealed class LocalizationDebugBehaviour : MonoBehaviour
         {
             int previous = _lastSceneIndex;
             _lastSceneIndex = Application.loadedLevel;
+            _paletteSnapshot.Clear();
+            _activeHiddenPalette = string.Empty;
             _inventoryController = null;
             _armedSceneIndex = -1;
             _sceneTargetText = _lastSceneIndex.ToString(CultureInfo.InvariantCulture);
@@ -320,7 +379,7 @@ public sealed class LocalizationDebugBehaviour : MonoBehaviour
         float availableHeight = Screen.height - 20f;
         _windowRect.height = Mathf.Min(Mathf.Max(_windowRect.height, 780f), availableHeight);
         _windowRect = GUILayout.Window(927451, _windowRect, DrawWindow,
-            "汉化调试工具 1.9.0");
+            "汉化调试工具 1.10.0");
     }
 
     private void DrawWindow(int id)
@@ -368,6 +427,7 @@ public sealed class LocalizationDebugBehaviour : MonoBehaviour
         DrawSceneControls();
         DrawFifthAcceptanceControls();
         DrawRuntimeAcceptanceControls();
+        DrawHiddenPaletteControls();
         DrawAutomaticAuditControls();
 
         BuildVisibleEntries();
@@ -572,6 +632,132 @@ public sealed class LocalizationDebugBehaviour : MonoBehaviour
         GUILayout.EndHorizontal();
         GUILayout.Label("预览冻结菜单操作，只显示游戏原有布局；不会删除进度、切换场景或修改对战设置。");
         GUILayout.EndVertical();
+    }
+
+    private void DrawHiddenPaletteControls()
+    {
+        GUILayout.BeginVertical("box");
+        GUILayout.BeginHorizontal();
+        GUILayout.Label("隐藏颜色预览", GUILayout.Width(105f));
+        if (GUILayout.Button("上一个", GUILayout.Width(65f)))
+            MoveHiddenPalette(-1);
+        if (GUILayout.Button("下一个", GUILayout.Width(65f)))
+            MoveHiddenPalette(1);
+        HiddenPaletteEntry entry = HiddenPalettes[_hiddenPaletteIndex];
+        GUILayout.Label((_hiddenPaletteIndex + 1) + "/" + HiddenPalettes.Length + "  " +
+            entry.Name + "  [" + entry.RenderType + "]", GUILayout.Width(330f));
+        if (GUILayout.Button("应用到玩家", GUILayout.Width(90f)))
+            ApplyHiddenPalette(entry);
+        GUI.enabled = _paletteSnapshot.Count > 0;
+        if (GUILayout.Button("恢复原配色", GUILayout.Width(90f)))
+            RestorePlayerPalette("已恢复预览前配色");
+        GUI.enabled = true;
+        GUILayout.EndHorizontal();
+        GUILayout.Label("材质: " + entry.ResourceName + " | 已知用途: " + entry.KnownUse +
+            (_activeHiddenPalette.Length == 0 ? string.Empty :
+            " | 当前预览: " + _activeHiddenPalette));
+        GUILayout.Label("仅修改当前玩家部件材质，不解锁颜色、不写入存档；切换场景或卸载调试模组时自动恢复。", GUI.skin.label);
+        GUILayout.EndVertical();
+    }
+
+    private void MoveHiddenPalette(int direction)
+    {
+        _hiddenPaletteIndex += direction;
+        if (_hiddenPaletteIndex < 0) _hiddenPaletteIndex = HiddenPalettes.Length - 1;
+        if (_hiddenPaletteIndex >= HiddenPalettes.Length) _hiddenPaletteIndex = 0;
+        _status = "已选择隐藏颜色: " + HiddenPalettes[_hiddenPaletteIndex].Name;
+    }
+
+    private void ApplyHiddenPalette(HiddenPaletteEntry entry)
+    {
+        Component dynamicObject = FindPlayerDynamicObject();
+        if (dynamicObject == null)
+        {
+            _status = "隐藏颜色预览失败: 当前场景没有找到玩家";
+            return;
+        }
+        FieldInfo creatureField = dynamicObject.GetType().GetField("creature",
+            BindingFlags.Public | BindingFlags.Instance);
+        Component creature = creatureField == null ? null : creatureField.GetValue(dynamicObject) as Component;
+        if (creature == null)
+        {
+            _status = "隐藏颜色预览失败: 玩家没有 CreatureScript";
+            return;
+        }
+        Material material = Resources.Load("Parts/PartPalets/" + entry.ResourceName,
+            typeof(Material)) as Material;
+        if (material == null)
+        {
+            _status = "隐藏颜色预览失败: 找不到材质 " + entry.ResourceName;
+            return;
+        }
+        if (_paletteSnapshot.Count == 0 && !CapturePlayerPalette(creature))
+        {
+            _status = "隐藏颜色预览失败: 无法记录玩家原配色";
+            return;
+        }
+        MethodInfo setPalette = creature.GetType().GetMethod("SetPalette",
+            BindingFlags.Public | BindingFlags.Instance, null,
+            new Type[] { typeof(Material) }, null);
+        if (setPalette == null)
+        {
+            _status = "隐藏颜色预览失败: 找不到 SetPalette";
+            return;
+        }
+        try
+        {
+            setPalette.Invoke(creature, new object[] { material });
+            _activeHiddenPalette = entry.Name;
+            AddToolEvent("hidden-palette", entry.ResourceName + " | " + entry.RenderType);
+            _status = "已预览隐藏颜色 " + (_hiddenPaletteIndex + 1) + "/" +
+                HiddenPalettes.Length + ": " + entry.Name;
+        }
+        catch (Exception ex)
+        {
+            _status = "隐藏颜色预览失败: " + ex.GetBaseException().Message;
+            Debug.LogError("[LocalizationDebug] " + _status + "\n" + ex);
+        }
+    }
+
+    private bool CapturePlayerPalette(Component creature)
+    {
+        _paletteSnapshot.Clear();
+        Type bodyPartType = FindLoadedType("BodyPartScript");
+        if (bodyPartType == null) return false;
+        Component[] parts = creature.gameObject.GetComponentsInChildren(bodyPartType) as Component[];
+        if (parts == null || parts.Length == 0) return false;
+        FieldInfo originalMatField = bodyPartType.GetField("originalMat",
+            BindingFlags.Public | BindingFlags.Instance);
+        if (originalMatField == null) return false;
+        for (int i = 0; i < parts.Length; i++)
+        {
+            Component part = parts[i];
+            Material original = part == null ? null : originalMatField.GetValue(part) as Material;
+            if (part == null || original == null) continue;
+            PartMaterialSnapshot snapshot = new PartMaterialSnapshot();
+            snapshot.Part = part;
+            snapshot.Material = original;
+            _paletteSnapshot.Add(snapshot);
+        }
+        return _paletteSnapshot.Count > 0;
+    }
+
+    private void RestorePlayerPalette(string message)
+    {
+        for (int i = 0; i < _paletteSnapshot.Count; i++)
+        {
+            PartMaterialSnapshot snapshot = _paletteSnapshot[i];
+            if (snapshot.Part == null || snapshot.Material == null) continue;
+            MethodInfo setMaterial = snapshot.Part.GetType().GetMethod("SetMaterial",
+                BindingFlags.Public | BindingFlags.Instance, null,
+                new Type[] { typeof(Material) }, null);
+            if (setMaterial == null) continue;
+            try { setMaterial.Invoke(snapshot.Part, new object[] { snapshot.Material }); }
+            catch { }
+        }
+        _paletteSnapshot.Clear();
+        _activeHiddenPalette = string.Empty;
+        if (!string.IsNullOrEmpty(message)) _status = message;
     }
 
     private void PreviewRuntimeMenu(string prefabFieldName, string displayName,
@@ -1872,6 +2058,7 @@ public sealed class LocalizationDebugBehaviour : MonoBehaviour
 
     private void OnDestroy()
     {
+        RestorePlayerPalette(string.Empty);
         CloseLevelCompletePreview();
         CloseRuntimeUiPreview();
         if (_dialogueRenderWaiting || _dialogueRenderRunning)
@@ -2573,7 +2760,7 @@ public sealed class LocalizationDebugBehaviour : MonoBehaviour
         using (StreamWriter writer = new StreamWriter(path, false, new UTF8Encoding(true)))
         {
             writer.WriteLine("PunchLoader 汉化调试验收摘要");
-            writer.WriteLine("版本: LocalizationDebug 1.5.0");
+            writer.WriteLine("版本: LocalizationDebug 1.10.0");
             writer.WriteLine("导出批次: " + stamp);
             writer.WriteLine("当前场景: " + Application.loadedLevelName + " (#" + Application.loadedLevel + ")");
             writer.WriteLine("已访问场景: " + _sceneCatalog.Count + "/" + Application.levelCount);
