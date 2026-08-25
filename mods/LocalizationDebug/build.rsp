@@ -1,7 +1,0 @@
-/target:library
-/out:build\mods\LocalizationDebug\LocalizationDebug.dll
-/reference:deps\Unity\UnityEngine.dll
-/reference:build\PunchLoader.dll
-/reference:deps\Game\Common\mscorlib.dll
-/nostdlib
-mods\LocalizationDebug\LocalizationDebug.cs

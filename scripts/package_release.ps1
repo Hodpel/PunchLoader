@@ -1,4 +1,4 @@
-﻿param(
+param(
     [string]$Version = '1.0.1',
     [string]$Csc = 'C:\Windows\Microsoft.NET\Framework\v3.5\csc.exe'
 )
@@ -8,135 +8,51 @@ $root = Split-Path -Parent $PSScriptRoot
 $expectedOriginal = 'EF53EB7B6438422EA0C40C96C7CE698E03C164CC2B1E2A21F601DAF3DEDB8492'
 $original = Join-Path $root 'deps\Game\Retail\Assembly-CSharp.dll'
 
-function Ensure-Directory([string]$Path) {
-    if ([IO.Directory]::Exists($Path)) { return }
-    New-Item -Path $Path -ItemType Directory -Force | Out-Null
-    if (-not [IO.Directory]::Exists($Path)) {
-        throw "Could not create release directory: $Path"
-    }
-}
-
-function Wait-ReleasePathRemoved([string]$Path) {
-    for ($attempt = 0; $attempt -lt 40; $attempt++) {
-        if (-not [IO.Directory]::Exists($Path) -and -not [IO.File]::Exists($Path)) {
-            return
-        }
-        Start-Sleep -Milliseconds 50
-    }
-    throw "Release path was not removed in time: $Path"
-}
-
 & (Join-Path $PSScriptRoot 'build_setup.ps1') -Csc $Csc
-if ($LASTEXITCODE -ne 0) { throw "Setup build failed: $LASTEXITCODE" }
-
-Ensure-Directory (Join-Path $root 'build\mods\ChineseLocalization')
-& $Csc '@mods\ChineseLocalization\build.rsp'
-if ($LASTEXITCODE -ne 0) { throw "ChineseLocalization build failed: $LASTEXITCODE" }
-
-Ensure-Directory (Join-Path $root 'build\mods\ContentUnlocker')
-& $Csc '@mods\ContentUnlocker\build.rsp'
-if ($LASTEXITCODE -ne 0) { throw "ContentUnlocker build failed: $LASTEXITCODE" }
-
-$actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $original).Hash
-if ($actual -ne $expectedOriginal) {
-    throw "Original Assembly-CSharp.dll hash mismatch: $actual"
+if ($LASTEXITCODE -ne 0) {
+    throw "Setup build failed: $LASTEXITCODE"
+}
+if ((Get-FileHash -Algorithm SHA256 -LiteralPath $original).Hash -ne $expectedOriginal) {
+    throw 'Original Assembly-CSharp.dll hash mismatch'
 }
 
+$name = 'PunchLoader-v' + $Version
 $dist = Join-Path $root 'dist'
-$unpacked = Join-Path $dist 'unpacked'
-$loaderName = "PunchLoader-v" + $Version
-$localizationVersion = (Get-Content -LiteralPath `
-    (Join-Path $root 'mods\ChineseLocalization\plugin.json') -Raw |
-    ConvertFrom-Json).version
-$unlockerVersion = (Get-Content -LiteralPath `
-    (Join-Path $root 'mods\ContentUnlocker\plugin.json') -Raw |
-    ConvertFrom-Json).version
-$localizationName = "ChineseLocalization-v" + $localizationVersion
-$unlockerName = "ContentUnlocker-v" + $unlockerVersion
-$combinedName = $loaderName + '-with-ChineseLocalization'
-$loaderFolder = Join-Path $unpacked $loaderName
-$localizationFolder = Join-Path $unpacked $localizationName
-$unlockerFolder = Join-Path $unpacked $unlockerName
-$combinedFolder = Join-Path $unpacked $combinedName
-$loaderZip = Join-Path $dist ($loaderName + '.zip')
-$localizationZip = Join-Path $dist ($localizationName + '.zip')
-$unlockerZip = Join-Path $dist ($unlockerName + '.zip')
-$combinedZip = Join-Path $dist ($combinedName + '.zip')
-$legacyFolder = Join-Path $dist $loaderName
-
-Ensure-Directory $dist
-Ensure-Directory $unpacked
-
+$stage = Join-Path (Join-Path $dist 'unpacked') $name
+$zip = Join-Path $dist ($name + '.zip')
+New-Item -ItemType Directory -Force -Path $dist | Out-Null
 $resolvedDist = [IO.Path]::GetFullPath($dist).TrimEnd('\') + '\'
-foreach ($candidate in @($loaderFolder, $localizationFolder, $unlockerFolder,
-    $combinedFolder, $legacyFolder)) {
-    $resolvedCandidate = [IO.Path]::GetFullPath($candidate)
-    if (-not $resolvedCandidate.StartsWith($resolvedDist,
+foreach ($candidate in @($stage, $zip)) {
+    $resolved = [IO.Path]::GetFullPath($candidate)
+    if (-not $resolved.StartsWith($resolvedDist,
         [StringComparison]::OrdinalIgnoreCase)) {
-        throw "Release path escaped dist: $resolvedCandidate"
+        throw "Release path escaped dist: $resolved"
     }
-    if (Test-Path -LiteralPath $resolvedCandidate) {
-        Remove-Item -LiteralPath $resolvedCandidate -Recurse -Force
-        Wait-ReleasePathRemoved $resolvedCandidate
-    }
-}
-
-foreach ($zip in @($loaderZip, $localizationZip, $unlockerZip, $combinedZip)) {
-    if (Test-Path -LiteralPath $zip) {
-        Remove-Item -LiteralPath $zip -Force
-        Wait-ReleasePathRemoved $zip
+    if (Test-Path -LiteralPath $resolved) {
+        Remove-Item -LiteralPath $resolved -Recurse -Force
     }
 }
 
-# PunchLoader 的标准包必须保持纯净，只提供 Loader 安装所需文件。
-Ensure-Directory $loaderFolder
+New-Item -ItemType Directory -Force -Path $stage | Out-Null
 Copy-Item -LiteralPath (Join-Path $root 'build\PunchLoader.Setup.exe') `
-    -Destination (Join-Path $loaderFolder 'PunchLoader.Setup.exe') -Force
-Copy-Item -LiteralPath $original -Destination (Join-Path $loaderFolder 'Assembly-CSharp.dll') -Force
+    -Destination (Join-Path $stage 'PunchLoader.Setup.exe') -Force
+Copy-Item -LiteralPath $original `
+    -Destination (Join-Path $stage 'Assembly-CSharp.dll') -Force
+Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip
 
-$modSource = Join-Path $root 'mods\ChineseLocalization'
-$modBinary = Join-Path $root 'build\mods\ChineseLocalization\ChineseLocalization.dll'
-function Copy-ChineseLocalization([string]$Target) {
-    Ensure-Directory $Target
-    Copy-Item -LiteralPath $modBinary `
-        -Destination (Join-Path $Target 'ChineseLocalization.dll') -Force
-    Copy-Item -LiteralPath (Join-Path $modSource 'plugin.json') `
-        -Destination (Join-Path $Target 'plugin.json') -Force
-    foreach ($directory in @('fonts', 'data', 'licenses')) {
-        Copy-Item -LiteralPath (Join-Path $modSource $directory) `
-            -Destination (Join-Path $Target $directory) -Recurse -Force
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$archive = [IO.Compression.ZipFile]::OpenRead($zip)
+try {
+    $entries = @($archive.Entries | ForEach-Object { $_.FullName -replace '\\', '/' })
+    if ($entries.Count -ne 2 -or
+        $entries -notcontains 'PunchLoader.Setup.exe' -or
+        $entries -notcontains 'Assembly-CSharp.dll') {
+        throw ('Unexpected PunchLoader package contents: ' + ($entries -join ', '))
     }
 }
-
-# 简体中文模组独立包：解压到游戏 Mods 目录即可。
-$standaloneMod = Join-Path $localizationFolder 'ChineseLocalization'
-Copy-ChineseLocalization $standaloneMod
-
-# 隐藏内容解锁器独立包：不混入标准 Loader 或汉化整合包。
-$unlockerSource = Join-Path $root 'mods\ContentUnlocker'
-$unlockerBinary = Join-Path $root 'build\mods\ContentUnlocker\ContentUnlocker.dll'
-$standaloneUnlocker = Join-Path $unlockerFolder 'ContentUnlocker'
-Ensure-Directory $standaloneUnlocker
-Copy-Item -LiteralPath $unlockerBinary `
-    -Destination (Join-Path $standaloneUnlocker 'ContentUnlocker.dll') -Force
-Copy-Item -LiteralPath (Join-Path $unlockerSource 'plugin.json') `
-    -Destination (Join-Path $standaloneUnlocker 'plugin.json') -Force
-Copy-Item -LiteralPath (Join-Path $unlockerSource 'README.md') `
-    -Destination (Join-Path $standaloneUnlocker 'README.md') -Force
-
-# 可选整合包：同时包含干净 Loader 安装文件和 Mods/ChineseLocalization。
-Ensure-Directory $combinedFolder
-Copy-Item -LiteralPath (Join-Path $loaderFolder 'PunchLoader.Setup.exe') -Destination $combinedFolder -Force
-Copy-Item -LiteralPath (Join-Path $loaderFolder 'Assembly-CSharp.dll') -Destination $combinedFolder -Force
-Copy-ChineseLocalization (Join-Path $combinedFolder 'Mods\ChineseLocalization')
-
-Compress-Archive -Path (Join-Path $loaderFolder '*') -DestinationPath $loaderZip
-Compress-Archive -Path (Join-Path $localizationFolder '*') -DestinationPath $localizationZip
-Compress-Archive -Path (Join-Path $unlockerFolder '*') -DestinationPath $unlockerZip
-Compress-Archive -Path (Join-Path $combinedFolder '*') -DestinationPath $combinedZip
-
-Write-Host "PunchLoader: $loaderZip"
-Write-Host "ChineseLocalization: $localizationZip"
-Write-Host "ContentUnlocker: $unlockerZip"
-Write-Host "Combined: $combinedZip"
-Write-Host "Unpacked: $unpacked"
+finally {
+    $archive.Dispose()
+}
+$hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash
+Write-Host "Package: $zip"
+Write-Host "SHA256: $hash"
