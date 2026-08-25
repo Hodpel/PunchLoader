@@ -1,7 +1,7 @@
 # 部署到测试游戏目录
 # 用法: .\deploy.ps1 -GameDir "F:\Codex\MBP_PROJ\Game"
 # 复制 PunchLoader.dll + Injector.exe 到游戏 Managed 目录，
-# 并部署随仓库维护的 ChineseLocalization 模组。
+# 并部署随仓库维护的 ChineseLocalization 与 ContentUnlocker 模组。
 
 param(
     [string]$GameDir = "F:\Codex\MBP_PROJ\ModdedGame"
@@ -82,6 +82,20 @@ foreach ($file in $legacyFiles) {
     }
 }
 Write-Host "Deployed ChineseLocalization mod"
+
+$unlockerSource = "$root\mods\ContentUnlocker"
+$unlockerBuild = "$root\build\mods\ContentUnlocker\ContentUnlocker.dll"
+$unlockerTarget = "$GameDir\Mods\ContentUnlocker"
+if (-not (Test-Path $unlockerBuild)) {
+    Write-Host "ContentUnlocker.dll not found, run build_all.ps1 first"
+    exit 1
+}
+New-Item -ItemType Directory -Force -Path $unlockerTarget | Out-Null
+Copy-Item -LiteralPath $unlockerBuild -Destination `
+    (Join-Path $unlockerTarget 'ContentUnlocker.dll') -Force
+Copy-Item -LiteralPath (Join-Path $unlockerSource 'plugin.json') -Destination `
+    (Join-Path $unlockerTarget 'plugin.json') -Force
+Write-Host "Deployed ContentUnlocker mod"
 
 Write-Host "=== Done ==="
 

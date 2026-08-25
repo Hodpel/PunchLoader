@@ -1,0 +1,7 @@
+/target:library
+/out:build\mods\ContentUnlocker\ContentUnlocker.dll
+/reference:deps\Unity\UnityEngine.dll
+/reference:build\PunchLoader.dll
+/reference:deps\Game\Common\mscorlib.dll
+/nostdlib
+mods\ContentUnlocker\ContentUnlocker.cs

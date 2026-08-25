@@ -1,5 +1,5 @@
 # 一键编译 PunchLoader
-# 编译 Injector.exe、PunchLoader.dll 与随仓库维护的 ChineseLocalization 模组
+# 编译 Injector.exe、PunchLoader.dll 与随仓库维护的正式模组
 # 用法: .\build_all.ps1
 
 $ErrorActionPreference = "Stop"
@@ -8,6 +8,7 @@ Set-Location $root
 New-Item -ItemType Directory -Force -Path (Join-Path $root 'build') | Out-Null
 foreach ($path in @(
     'build\mods\ChineseLocalization',
+    'build\mods\ContentUnlocker',
     'build\mods\LocalizationDebug',
     'build\examples\ExampleMod',
     'build\examples\ExampleMod2'
@@ -72,6 +73,10 @@ if ($LASTEXITCODE -ne 0) { Write-Host "FAILED"; exit $LASTEXITCODE }
 
 Write-Host "=== Compiling ChineseLocalization.dll ==="
 & $csc "@mods\ChineseLocalization\build.rsp"
+if ($LASTEXITCODE -ne 0) { Write-Host "FAILED"; exit $LASTEXITCODE }
+
+Write-Host "=== Compiling ContentUnlocker.dll ==="
+& $csc "@mods\ContentUnlocker\build.rsp"
 if ($LASTEXITCODE -ne 0) { Write-Host "FAILED"; exit $LASTEXITCODE }
 
 Write-Host "=== Done ==="
