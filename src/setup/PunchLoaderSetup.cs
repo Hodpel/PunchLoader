@@ -72,6 +72,10 @@ public static class PunchLoaderSetup
 
             int currentState = Inspect(injector, Target, work);
             string cleanSource = EnsureOriginalBackup(currentState);
+            string emergency = Path.Combine(BackupDir, "Assembly-CSharp.before-install.dll");
+
+            // 该文件只服务于一次安装事务。新事务开始时清理上次异常退出可能留下的副本。
+            if (File.Exists(emergency)) File.Delete(emergency);
 
             if (currentState == StateInjected)
             {
@@ -94,7 +98,6 @@ public static class PunchLoaderSetup
             if (Inspect(injector, patched, work) != StateInjected)
                 throw new InvalidOperationException("注入结果校验失败，未替换游戏文件。");
 
-            string emergency = Path.Combine(BackupDir, "Assembly-CSharp.before-install.dll");
             File.Copy(Target, emergency, true);
             File.Copy(loader, Path.Combine(Managed, "PunchLoader.dll"), true);
             Directory.CreateDirectory(Path.Combine(Root, "Mods"));
@@ -103,6 +106,8 @@ public static class PunchLoaderSetup
                 File.Replace(patched, Target, emergency, true);
                 if (Inspect(injector, Target, work) != StateInjected)
                     throw new InvalidOperationException("替换后的目标 DLL 校验失败。");
+                WriteManifest("installed", Sha256(Target), Sha256(loader));
+                File.Delete(emergency);
             }
             catch
             {
@@ -110,7 +115,6 @@ public static class PunchLoaderSetup
                 throw;
             }
 
-            WriteManifest("installed", Sha256(Target), Sha256(loader));
             Console.WriteLine("[完成] 原版 DLL 已备份，PunchLoader 已注入并部署。");
             Console.WriteLine("备份: " + OriginalBackup);
             return 0;

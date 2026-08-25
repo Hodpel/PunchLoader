@@ -16,6 +16,9 @@
 6. 对完整注入版本跳过重复注入，仅更新 Loader；
 7. 写入 JSON 安装清单。
 
+安装器仅在程序集替换期间创建 `Assembly-CSharp.before-install.dll` 作为事务回滚副本；
+完成注入校验并写入安装清单后会立即删除它。`Assembly-CSharp.original.dll` 仍作为卸载所需的永久原版备份保留。
+
 命令行：
 
 ```text
