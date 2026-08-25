@@ -8,7 +8,10 @@ using System.Text;
 public static class PunchLoaderSetup
 {
     const string Version = "1.0.0";
+    // 已验证的 Megabyte Punch 原版程序集：历史零售版与 Steam 版。
+    // 安装器只接受这两个完整文件哈希；不会把任意未注入 DLL 当作可注入版本。
     const string OriginalAssemblySha256 = "EF53EB7B6438422EA0C40C96C7CE698E03C164CC2B1E2A21F601DAF3DEDB8492";
+    const string SteamAssemblySha256 = "98B65733333F24613E2FE1CCF1DD520459F8C3DFBC17DDD618372ED8A8EB3450";
     const int StateOriginal = 0;
     const int StateInjected = 10;
     const int StatePartial = 11;
@@ -238,7 +241,15 @@ public static class PunchLoaderSetup
 
     static bool IsKnownOriginal(string path)
     {
-        return string.Equals(Sha256(path), OriginalAssemblySha256, StringComparison.OrdinalIgnoreCase);
+        string hash = Sha256(path);
+        return string.Equals(hash, OriginalAssemblySha256, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(hash, SteamAssemblySha256, StringComparison.OrdinalIgnoreCase);
+    }
+
+    static string OriginalBackupSha256()
+    {
+        // 安装 Steam 版时，清单必须记录 Steam 原版的哈希，不能误写成历史零售版哈希。
+        return File.Exists(OriginalBackup) ? Sha256(OriginalBackup) : OriginalAssemblySha256;
     }
 
     static string Sha256(string path)
@@ -261,7 +272,7 @@ public static class PunchLoaderSetup
             "  \"setupVersion\": \"" + Version + "\",\r\n" +
             "  \"status\": \"" + status + "\",\r\n" +
             "  \"updatedUtc\": \"" + DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ") + "\",\r\n" +
-            "  \"originalSha256\": \"" + OriginalAssemblySha256 + "\",\r\n" +
+            "  \"originalSha256\": \"" + OriginalBackupSha256() + "\",\r\n" +
             "  \"assemblySha256\": \"" + assemblyHash + "\",\r\n" +
             "  \"loaderSha256\": " + (loaderHash == null ? "null" : "\"" + loaderHash + "\"") + "\r\n" +
             "}\r\n";
