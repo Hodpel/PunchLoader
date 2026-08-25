@@ -96,64 +96,24 @@
 ## 部件资源初筛
 
 - 含 `BodyPartScript` 的部件预制体：**158**
-- 文件名明确标记不可获取/未使用：**1**
-- Boss/皇帝命名候选：**47**
+- 正式收藏说明 ID：**150**（#0–#149）
+- 仓库外重复资源变体：**8**
+- 属于正式收藏项的 Boss/皇帝命名 prefab：**34**
 - 未发现静态引用的其他部件：**0**
 
-部件主要通过 `Resources.Load("Parts/BodyParts/" + name)` 动态加载，因此“未发现静态引用”不能直接证明不可获取；必须结合敌人掉落表、商店、存档收藏和运行时测试。
+部件主要通过 `Resources.Load("Parts/BodyParts/" + name)` 动态加载，因此“未发现静态引用”不能直接证明不可获取。Boss/皇帝命名也不是隐藏判据；皇帝套等资源属于正常的 150 项收藏。
 
-### 明确的不可获取命名
+### 仓库外重复资源变体
 
-- `RangedBossHead2_unobtainable.prefab`：说明 ID 116，说明名 `Overclocked R.A.M. Head`。
+- `RangedBossHead2_unobtainable.prefab`：说明 ID 116，说明名 `Overclocked R.A.M. Head`，分类 `仓库外重复变体（明确不可获取命名）`。
+- `Skel_ValkEmperorArm.prefab`：说明 ID 134，说明名 `Valk Claw`，分类 `仓库外重复变体（最终Boss骨架）`。
+- `Skel_ValkEmperorChest.prefab`：说明 ID 135，说明名 `Duplice`，分类 `仓库外重复变体（最终Boss骨架）`。
+- `Skel_ValkEmperorHead.prefab`：说明 ID 136，说明名 `Valk Mask`，分类 `仓库外重复变体（最终Boss骨架）`。
+- `Skel_ValkEmperorHip.prefab`：说明 ID 137，说明名 `Valk Hip`，分类 `仓库外重复变体（最终Boss骨架）`。
+- `Skel_ValkEmperorShld.prefab`：说明 ID 139，说明名 `Emperors Eye`，分类 `仓库外重复变体（最终Boss骨架）`。
+- `Skel_ValkEmperorTail.prefab`：说明 ID 134，说明名 `Valk Claw`，分类 `仓库外重复变体（最终Boss骨架）`。
+- `Skel_ValkEmperorUpperArm.prefab`：说明 ID 134，说明名 `Valk Claw`，分类 `仓库外重复变体（最终Boss骨架）`。
 
-### Boss/皇帝部件候选
-
-- `DrillBossArm.prefab` → #14 Electrocrush Dyna-arm
-- `DrillBossArmDrill.prefab` → #78 Drill Arm
-- `DrillBossChest.prefab` → #15 Big Core
-- `DrillBossHead.prefab` → #16 Rhintro Head
-- `DrillBossHip.prefab` → #17 Armored Dyna-hip
-- `DrillBossLeg.prefab` → #18 Drill Leg
-- `DrillBossNewHead.prefab` → #89 Bugga Head
-- `DrillBossShld.prefab` → #19 Aero Pipes
-- `IceBossArmClaw.prefab` → #92 Scythe Claw
-- `IceBossArmMiniRocket.prefab` → #93 Missile Revolver
-- `IceBossChest.prefab` → #94 Frostbyte Core
-- `IceBossHead.prefab` → #95 Ice-Beak Head
-- `IceBossHip.prefab` → #96 Frostbyte Hip
-- `IceBossLeg.prefab` → #97 Frostbyte Leg
-- `IceBossShld.prefab` → #98 Frostbyte Shoulder
-- `PsychicBossArm.prefab` → #32 Kheprion Arm
-- `PsychicBossChest.prefab` → #33 Kheprion Core
-- `PsychicBossHead.prefab` → #34 Tri-eyed Kheprion Head
-- `PsychicBossHip.prefab` → #35 Kheprion Hip
-- `PsychicBossLeg.prefab` → #36 Kheprion Leg
-- `PsychicBossShld.prefab` → #37 Kheprion Wing
-- `RangedBossArm.prefab` → #40 Submachine Gun-arm
-- `RangedBossChest.prefab` → #41 R.A.M. Core
-- `RangedBossHead.prefab` → #42 R.A.M. Head
-- `RangedBossHead2.prefab` → #116 Overclocked R.A.M. Head
-- `RangedBossHip.prefab` → #43 R.A.M. Hip
-- `RangedBossLeg.prefab` → #44 R.A.M. Leg
-- `RangedBossShld.prefab` → #45 R.A.M. Wing
-- `Skel_ValkEmperorArm.prefab` → #134 Valk Claw
-- `Skel_ValkEmperorChest.prefab` → #135 Duplice
-- `Skel_ValkEmperorHead.prefab` → #136 Valk Mask
-- `Skel_ValkEmperorHip.prefab` → #137 Valk Hip
-- `Skel_ValkEmperorShld.prefab` → #139 Emperors Eye
-- `Skel_ValkEmperorTail.prefab` → #134 Valk Claw
-- `Skel_ValkEmperorUpperArm.prefab` → #134 Valk Claw
-- `SkellyBossArm.prefab` → #47 Subprogram Arm 2
-- `SkellyBossChest.prefab` → #48 Khepriogram Core
-- `SkellyBossHead.prefab` → #49 Khepriogram Head
-- `SkellyBossHip.prefab` → #50 Khepriogram Hip
-- `SkellyBossLeg.prefab` → #51 Khepriogram Leg
-- `SkellyBossShld.prefab` → #52 Neomoog Wing
-- `ValkEmperorArm.prefab` → #134 Valk Claw
-- `ValkEmperorChest.prefab` → #135 Duplice
-- `ValkEmperorHead.prefab` → #136 Valk Mask
-- `ValkEmperorHip.prefab` → #137 Valk Hip
-- `ValkEmperorLeg.prefab` → #138 Valk Leg
-- `ValkEmperorShld.prefab` → #139 Emperors Eye
+其余 Boss/皇帝命名 prefab 均保留在 CSV 中，但不再列为隐藏候选。
 
 完整部件初筛数据：`part_resource_scan.csv`

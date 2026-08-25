@@ -14,7 +14,7 @@ public class LocalizationDebugPlugin : IModPlugin
 
     public string GetId() { return "LocalizationDebug"; }
     public string GetName() { return "Localization Debug"; }
-    public string GetVersion() { return "1.10.0"; }
+    public string GetVersion() { return "1.11.0"; }
 
     public void OnLoad()
     {
@@ -162,6 +162,21 @@ public sealed class LocalizationDebugBehaviour : MonoBehaviour
         }
     }
 
+    private sealed class HiddenPartEntry
+    {
+        public string Name;
+        public string ResourceName;
+        public string Classification;
+
+        public HiddenPartEntry(string name, string resourceName,
+            string classification)
+        {
+            Name = name;
+            ResourceName = resourceName;
+            Classification = classification;
+        }
+    }
+
     private sealed class PartMaterialSnapshot
     {
         public Component Part;
@@ -279,6 +294,27 @@ public sealed class LocalizationDebugBehaviour : MonoBehaviour
         new HiddenPaletteEntry("Turquoise Beige", "turqoisebeigeMat",
             "标准卡通", "教程和冰系敌人")
     };
+    private object _hiddenPartOriginalBuild;
+    private int _hiddenPartIndex;
+    private string _activeHiddenPart = string.Empty;
+    private static readonly HiddenPartEntry[] HiddenParts = new HiddenPartEntry[] {
+        new HiddenPartEntry("Overclocked R.A.M. Head", "RangedBossHead2_unobtainable",
+            "仓库外重复变体（#116）"),
+        new HiddenPartEntry("Valk Claw", "Skel_ValkEmperorArm",
+            "最终 Boss 骨架变体（#134）"),
+        new HiddenPartEntry("Valk Claw", "Skel_ValkEmperorTail",
+            "最终 Boss 骨架变体（#134）"),
+        new HiddenPartEntry("Valk Claw", "Skel_ValkEmperorUpperArm",
+            "最终 Boss 骨架变体（#134）"),
+        new HiddenPartEntry("Duplice", "Skel_ValkEmperorChest",
+            "最终 Boss 骨架变体（#135）"),
+        new HiddenPartEntry("Valk Mask", "Skel_ValkEmperorHead",
+            "最终 Boss 骨架变体（#136）"),
+        new HiddenPartEntry("Valk Hip", "Skel_ValkEmperorHip",
+            "最终 Boss 骨架变体（#137）"),
+        new HiddenPartEntry("Emperors Eye", "Skel_ValkEmperorShld",
+            "最终 Boss 骨架变体（#139）")
+    };
     private static readonly string[] AutomaticInventoryStates = new string[] {
         "INVENTORY", "ATTACHMENT", "INVENTORY", "ABILITIES", "INVENTORY",
         "BREAKINTOBITS", "INVENTORY", "STATS", "INVENTORY"
@@ -344,6 +380,8 @@ public sealed class LocalizationDebugBehaviour : MonoBehaviour
             _lastSceneIndex = Application.loadedLevel;
             _paletteSnapshot.Clear();
             _activeHiddenPalette = string.Empty;
+            _hiddenPartOriginalBuild = null;
+            _activeHiddenPart = string.Empty;
             _inventoryController = null;
             _armedSceneIndex = -1;
             _sceneTargetText = _lastSceneIndex.ToString(CultureInfo.InvariantCulture);
@@ -428,6 +466,7 @@ public sealed class LocalizationDebugBehaviour : MonoBehaviour
         DrawFifthAcceptanceControls();
         DrawRuntimeAcceptanceControls();
         DrawHiddenPaletteControls();
+        DrawHiddenPartControls();
         DrawAutomaticAuditControls();
 
         BuildVisibleEntries();
@@ -757,6 +796,176 @@ public sealed class LocalizationDebugBehaviour : MonoBehaviour
         }
         _paletteSnapshot.Clear();
         _activeHiddenPalette = string.Empty;
+        if (!string.IsNullOrEmpty(message)) _status = message;
+    }
+
+    private void DrawHiddenPartControls()
+    {
+        GUILayout.BeginVertical("box");
+        GUILayout.BeginHorizontal();
+        GUILayout.Label("隐藏部件预览", GUILayout.Width(105f));
+        if (GUILayout.Button("上一个", GUILayout.Width(65f))) MoveHiddenPart(-1);
+        if (GUILayout.Button("下一个", GUILayout.Width(65f))) MoveHiddenPart(1);
+        HiddenPartEntry entry = HiddenParts[_hiddenPartIndex];
+        GUILayout.Label((_hiddenPartIndex + 1) + "/" + HiddenParts.Length + "  " +
+            entry.Name + "  [" + entry.Classification + "]", GUILayout.Width(355f));
+        if (GUILayout.Button("临时装备", GUILayout.Width(85f))) PreviewHiddenPart(entry);
+        GUI.enabled = _hiddenPartOriginalBuild != null;
+        if (GUILayout.Button("恢复原配装", GUILayout.Width(90f)))
+            RestoreHiddenPartPreview("已恢复隐藏部件预览前的配装");
+        GUI.enabled = true;
+        GUILayout.EndHorizontal();
+        GUILayout.Label("资源: Parts/BodyParts/" + entry.ResourceName +
+            (_activeHiddenPart.Length == 0 ? string.Empty :
+            " | 当前预览: " + _activeHiddenPart));
+        GUILayout.Label("仅临时替换一个兼容槽位；不加入收藏、不保存配装，切换场景或卸载调试模组时停止预览。");
+        GUILayout.EndVertical();
+    }
+
+    private void MoveHiddenPart(int direction)
+    {
+        _hiddenPartIndex += direction;
+        if (_hiddenPartIndex < 0) _hiddenPartIndex = HiddenParts.Length - 1;
+        if (_hiddenPartIndex >= HiddenParts.Length) _hiddenPartIndex = 0;
+        _status = "已选择隐藏部件候选: " + HiddenParts[_hiddenPartIndex].Name;
+    }
+
+    private void PreviewHiddenPart(HiddenPartEntry entry)
+    {
+        Component creature = FindPlayerCreature();
+        if (creature == null)
+        {
+            _status = "隐藏部件预览失败: 当前场景没有找到玩家";
+            return;
+        }
+
+        Type bodyPartType = FindLoadedType("BodyPartScript");
+        GameObject prefab = Resources.Load("Parts/BodyParts/" + entry.ResourceName,
+            typeof(GameObject)) as GameObject;
+        if (bodyPartType == null || prefab == null)
+        {
+            _status = "隐藏部件预览失败: 找不到资源 " + entry.ResourceName;
+            return;
+        }
+        Component bodyPart = prefab.GetComponent(bodyPartType);
+        if (bodyPart == null)
+        {
+            _status = "隐藏部件预览失败: 资源没有 BodyPartScript";
+            return;
+        }
+
+        MethodInfo getBuild = creature.GetType().GetMethod("GetBuild",
+            BindingFlags.Public | BindingFlags.Instance);
+        MethodInfo setBuild = FindSingleArgumentMethod(creature.GetType(), "SetBuild");
+        FieldInfo partSpotsField = creature.GetType().GetField("partSpots",
+            BindingFlags.Public | BindingFlags.Instance);
+        MethodInfo fitsOn = FindSingleArgumentMethod(bodyPartType, "FitsOn");
+        if (getBuild == null || setBuild == null || partSpotsField == null || fitsOn == null)
+        {
+            _status = "隐藏部件预览失败: 游戏部件接口不完整";
+            return;
+        }
+
+        try
+        {
+            if (_hiddenPartOriginalBuild == null)
+                _hiddenPartOriginalBuild = getBuild.Invoke(creature, null);
+            else
+                setBuild.Invoke(creature, new object[] { _hiddenPartOriginalBuild });
+
+            Array spots = partSpotsField.GetValue(creature) as Array;
+            int spotIndex = FindCompatiblePartSpot(spots, bodyPart, fitsOn);
+            if (spotIndex < 0)
+            {
+                _status = "隐藏部件预览失败: 玩家没有兼容槽位";
+                return;
+            }
+
+            object previewBuild = getBuild.Invoke(creature, null);
+            FieldInfo partsField = previewBuild.GetType().GetField("parts",
+                BindingFlags.Public | BindingFlags.Instance);
+            string[] parts = partsField == null ? null :
+                partsField.GetValue(previewBuild) as string[];
+            if (parts == null || spotIndex >= parts.Length)
+            {
+                _status = "隐藏部件预览失败: 无法修改临时配装";
+                return;
+            }
+            parts[spotIndex] = entry.ResourceName;
+            setBuild.Invoke(creature, new object[] { previewBuild });
+            _activeHiddenPart = entry.Name + " (槽位 " + spotIndex + ")";
+            AddToolEvent("hidden-part", entry.ResourceName + " | " +
+                entry.Classification + " | spot=" + spotIndex);
+            _status = "已临时装备 " + (_hiddenPartIndex + 1) + "/" +
+                HiddenParts.Length + ": " + entry.Name;
+        }
+        catch (Exception ex)
+        {
+            _status = "隐藏部件预览失败: " + ex.GetBaseException().Message;
+            Debug.LogError("[LocalizationDebug] " + _status + "\n" + ex);
+        }
+    }
+
+    private Component FindPlayerCreature()
+    {
+        Component dynamicObject = FindPlayerDynamicObject();
+        if (dynamicObject == null) return null;
+        FieldInfo creatureField = dynamicObject.GetType().GetField("creature",
+            BindingFlags.Public | BindingFlags.Instance);
+        return creatureField == null ? null :
+            creatureField.GetValue(dynamicObject) as Component;
+    }
+
+    private static MethodInfo FindSingleArgumentMethod(Type type, string name)
+    {
+        MethodInfo[] methods = type.GetMethods(BindingFlags.Public |
+            BindingFlags.NonPublic | BindingFlags.Instance);
+        for (int i = 0; i < methods.Length; i++)
+        {
+            if (methods[i].Name == name && methods[i].GetParameters().Length == 1)
+                return methods[i];
+        }
+        return null;
+    }
+
+    private static int FindCompatiblePartSpot(Array spots, Component bodyPart,
+        MethodInfo fitsOn)
+    {
+        if (spots == null) return -1;
+        for (int i = 0; i < spots.Length; i++)
+        {
+            object spot = spots.GetValue(i);
+            if (spot == null) continue;
+            FieldInfo typeField = spot.GetType().GetField("type",
+                BindingFlags.Public | BindingFlags.Instance);
+            object boneType = typeField == null ? null : typeField.GetValue(spot);
+            if (boneType == null) continue;
+            object result = fitsOn.Invoke(bodyPart, new object[] { boneType });
+            if (result is bool && (bool)result) return i;
+        }
+        return -1;
+    }
+
+    private void RestoreHiddenPartPreview(string message)
+    {
+        if (_hiddenPartOriginalBuild == null) return;
+        Component creature = FindPlayerCreature();
+        if (creature != null)
+        {
+            MethodInfo setBuild = FindSingleArgumentMethod(creature.GetType(), "SetBuild");
+            try
+            {
+                if (setBuild != null)
+                    setBuild.Invoke(creature, new object[] { _hiddenPartOriginalBuild });
+            }
+            catch (Exception ex)
+            {
+                _status = "恢复原配装失败: " + ex.GetBaseException().Message;
+                return;
+            }
+        }
+        _hiddenPartOriginalBuild = null;
+        _activeHiddenPart = string.Empty;
         if (!string.IsNullOrEmpty(message)) _status = message;
     }
 
@@ -2058,6 +2267,7 @@ public sealed class LocalizationDebugBehaviour : MonoBehaviour
 
     private void OnDestroy()
     {
+        RestoreHiddenPartPreview(string.Empty);
         RestorePlayerPalette(string.Empty);
         CloseLevelCompletePreview();
         CloseRuntimeUiPreview();

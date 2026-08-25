@@ -254,9 +254,10 @@ def main() -> int:
     ]
     args.report.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
-    # Body-part pass: this does not claim that a part is obtainable. It records
-    # the description ID, obvious boss/internal naming and static asset links so
-    # the runtime preview can focus on suspicious candidates.
+    # Body-part pass. The collection completion threshold is 150, while the
+    # exported project contains 158 BodyPart prefabs. Description-ID duplicates
+    # identify the eight extra resource variants; Boss/Emperor naming alone does
+    # not imply that a part is hidden or unobtainable.
     body_script_meta = assets / "Scripts" / "Assembly-CSharp" / "BodyPartScript.cs.meta"
     body_script_guid_match = re.search(
         r"^guid:\s*([0-9a-f]{32})\s*$", read_text(body_script_meta), re.MULTILINE
@@ -286,8 +287,6 @@ def main() -> int:
         boss_named = "boss" in lower or "emperor" in lower
         if obvious_internal:
             category = "明确内部/不可获取命名"
-        elif boss_named:
-            category = "Boss/皇帝部件候选"
         elif not refs:
             category = "未发现静态引用"
         else:
@@ -299,7 +298,26 @@ def main() -> int:
             "category": category,
             "static_reference_count": str(len(refs)),
             "static_references": "; ".join(refs),
+            "_stem": prefab.stem,
+            "_boss_named": boss_named,
         })
+
+    description_counts = defaultdict(int)
+    for row in part_rows:
+        description_counts[row["description_id"]] += 1
+    for row in part_rows:
+        duplicate_id = bool(row["description_id"]) and description_counts[row["description_id"]] > 1
+        stem_lower = row["_stem"].lower()
+        if "unobtainable" in stem_lower or "unused" in stem_lower:
+            row["category"] = "仓库外重复变体（明确不可获取命名）"
+        elif duplicate_id and stem_lower.startswith("skel_"):
+            row["category"] = "仓库外重复变体（最终Boss骨架）"
+        elif duplicate_id:
+            row["category"] = "正式收藏项（存在重复资源变体）"
+        elif row["_boss_named"]:
+            row["category"] = "正式收藏项（Boss命名）"
+        row.pop("_stem")
+        row.pop("_boss_named")
 
     if args.part_csv:
         args.part_csv.parent.mkdir(parents=True, exist_ok=True)
@@ -308,39 +326,35 @@ def main() -> int:
             writer.writeheader()
             writer.writerows(part_rows)
 
-    obvious_parts = [row for row in part_rows if row["category"] == "明确内部/不可获取命名"]
-    boss_parts = [row for row in part_rows if row["category"] == "Boss/皇帝部件候选"]
+    extra_variants = [row for row in part_rows if row["category"].startswith("仓库外重复变体")]
+    boss_parts = [row for row in part_rows if row["category"] == "正式收藏项（Boss命名）"]
     no_ref_parts = [row for row in part_rows if row["category"] == "未发现静态引用"]
     with args.report.open("a", encoding="utf-8") as handle:
         handle.write("\n## 部件资源初筛\n\n")
         handle.write(f"- 含 `BodyPartScript` 的部件预制体：**{len(part_rows)}**\n")
-        handle.write(f"- 文件名明确标记不可获取/未使用：**{len(obvious_parts)}**\n")
-        handle.write(f"- Boss/皇帝命名候选：**{len(boss_parts)}**\n")
+        handle.write("- 正式收藏说明 ID：**150**（#0–#149）\n")
+        handle.write(f"- 仓库外重复资源变体：**{len(extra_variants)}**\n")
+        handle.write(f"- 属于正式收藏项的 Boss/皇帝命名 prefab：**{len(boss_parts)}**\n")
         handle.write(f"- 未发现静态引用的其他部件：**{len(no_ref_parts)}**\n\n")
         handle.write(
             "部件主要通过 `Resources.Load(\"Parts/BodyParts/\" + name)` 动态加载，因此“未发现静态引用”"
-            "不能直接证明不可获取；必须结合敌人掉落表、商店、存档收藏和运行时测试。\n\n"
+            "不能直接证明不可获取。Boss/皇帝命名也不是隐藏判据；皇帝套等资源属于正常的 150 项收藏。\n\n"
         )
-        handle.write("### 明确的不可获取命名\n\n")
-        if obvious_parts:
-            for row in obvious_parts:
+        handle.write("### 仓库外重复资源变体\n\n")
+        if extra_variants:
+            for row in extra_variants:
                 handle.write(
                     f"- `{Path(row['prefab']).name}`：说明 ID {row['description_id'] or '无'}，"
-                    f"说明名 `{row['description_name'] or '无'}`。\n"
+                    f"说明名 `{row['description_name'] or '无'}`，分类 `{row['category']}`。\n"
                 )
         else:
             handle.write("- 未发现。\n")
-        handle.write("\n### Boss/皇帝部件候选\n\n")
-        for row in boss_parts:
-            handle.write(
-                f"- `{Path(row['prefab']).name}` → #{row['description_id'] or '?'} "
-                f"{row['description_name'] or '无说明名'}\n"
-            )
+        handle.write("\n其余 Boss/皇帝命名 prefab 均保留在 CSV 中，但不再列为隐藏候选。\n")
         if args.part_csv:
             handle.write(f"\n完整部件初筛数据：`{args.part_csv.name}`\n")
 
     print(f"materials={len(rows)} official={len(official)} hidden={len(hidden)} extras={len(extras)} orphaned={len(orphaned)}")
-    print(f"parts={len(part_rows)} obvious_internal={len(obvious_parts)} boss_named={len(boss_parts)} no_static_ref={len(no_ref_parts)}")
+    print(f"parts={len(part_rows)} extra_variants={len(extra_variants)} formal_boss_named={len(boss_parts)} no_static_ref={len(no_ref_parts)}")
     print(args.report)
     print(args.csv)
     if args.part_csv:

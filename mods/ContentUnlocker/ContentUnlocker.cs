@@ -10,7 +10,7 @@ public sealed class ContentUnlockerPlugin : IModPlugin
 
     public string GetId() { return "ContentUnlocker"; }
     public string GetName() { return "Content Unlocker"; }
-    public string GetVersion() { return "0.1.0"; }
+    public string GetVersion() { return "0.2.0"; }
 
     public void OnLoad()
     {
@@ -19,7 +19,8 @@ public sealed class ContentUnlockerPlugin : IModPlugin
         UnityEngine.Object.DontDestroyOnLoad(host);
         _behaviour = (ContentUnlockerBehaviour)host.AddComponent(
             typeof(ContentUnlockerBehaviour));
-        Debug.Log("[ContentUnlocker] Loaded: 14 hidden colors will be added to the color repository.");
+        Debug.Log("[ContentUnlocker] Loaded: 14 hidden colors and 7 hidden part variants " +
+            "will be added to their repositories.");
     }
 
     public void OnUnload()
@@ -43,6 +44,16 @@ public sealed class ContentUnlockerBehaviour : MonoBehaviour
         }
     }
 
+    private sealed class HiddenPart
+    {
+        public string ResourceName;
+
+        public HiddenPart(string resourceName)
+        {
+            ResourceName = resourceName;
+        }
+    }
+
     private static readonly HiddenColor[] HiddenColors = new HiddenColor[] {
         new HiddenColor("Army Green Yellow", "ArmyGreenYellowMat"),
         new HiddenColor("Beige Bordeaux", "beigebordeauxMat"),
@@ -60,6 +71,19 @@ public sealed class ContentUnlockerBehaviour : MonoBehaviour
         new HiddenColor("Turquoise Beige", "turqoisebeigeMat")
     };
 
+    // These seven prefabs are distinct final-boss skeleton models that reuse
+    // the normal Emperor-set description IDs. Keep them out of the original
+    // save collection so its 150-entry achievement threshold remains valid.
+    private static readonly HiddenPart[] HiddenParts = new HiddenPart[] {
+        new HiddenPart("Skel_ValkEmperorArm"),
+        new HiddenPart("Skel_ValkEmperorTail"),
+        new HiddenPart("Skel_ValkEmperorUpperArm"),
+        new HiddenPart("Skel_ValkEmperorChest"),
+        new HiddenPart("Skel_ValkEmperorHead"),
+        new HiddenPart("Skel_ValkEmperorHip"),
+        new HiddenPart("Skel_ValkEmperorShld")
+    };
+
     private Type _colorGuiType;
     private Type _colorEntryType;
     private FieldInfo _colorsField;
@@ -69,6 +93,12 @@ public sealed class ContentUnlockerBehaviour : MonoBehaviour
     private MethodInfo _listMethod;
     private float _nextScan;
     private bool _reportedReady;
+    private Type _collectionGuiType;
+    private FieldInfo _partCollectionField;
+    private FieldInfo _partMaxPagesField;
+    private MethodInfo _sortPartCollectionMethod;
+    private MethodInfo _listPartsMethod;
+    private bool _reportedPartsReady;
 
     private void Update()
     {
@@ -84,15 +114,33 @@ public sealed class ContentUnlockerBehaviour : MonoBehaviour
                 continue;
             ExtendColorRepository(gui);
         }
+
+        UnityEngine.Object[] partObjects = Resources.FindObjectsOfTypeAll(
+            _collectionGuiType);
+        for (int i = 0; i < partObjects.Length; i++)
+        {
+            Component gui = partObjects[i] as Component;
+            if (gui == null || gui.gameObject == null ||
+                !gui.gameObject.activeInHierarchy) continue;
+            ExtendPartRepository(gui);
+        }
     }
 
     private bool ResolveGameTypes()
     {
-        if (_colorGuiType != null) return true;
+        if (_colorGuiType != null && _collectionGuiType != null &&
+            _colorEntryType != null && _colorsField != null &&
+            _maxPagesField != null && _listMethod != null &&
+            _entryNameField != null && _entryMaterialField != null &&
+            _partCollectionField != null && _partMaxPagesField != null &&
+            _sortPartCollectionMethod != null && _listPartsMethod != null)
+            return true;
         Assembly[] assemblies = AppDomain.CurrentDomain.GetAssemblies();
         for (int i = 0; i < assemblies.Length && _colorGuiType == null; i++)
             _colorGuiType = assemblies[i].GetType("ColorGUIScript", false);
-        if (_colorGuiType == null) return false;
+        for (int i = 0; i < assemblies.Length && _collectionGuiType == null; i++)
+            _collectionGuiType = assemblies[i].GetType("CollectionGUIScript", false);
+        if (_colorGuiType == null || _collectionGuiType == null) return false;
 
         _colorEntryType = _colorGuiType.GetNestedType("ColorEntry",
             BindingFlags.Public | BindingFlags.NonPublic);
@@ -108,9 +156,61 @@ public sealed class ContentUnlockerBehaviour : MonoBehaviour
             _entryMaterialField = _colorEntryType.GetField("mat",
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
         }
+        _partCollectionField = _collectionGuiType.GetField("collection",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        _partMaxPagesField = FindField(_collectionGuiType, "maxPages");
+        _sortPartCollectionMethod = _collectionGuiType.GetMethod(
+            "SortCollectionByType", BindingFlags.Instance | BindingFlags.Public |
+            BindingFlags.NonPublic);
+        _listPartsMethod = _collectionGuiType.GetMethod("List",
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+
         return _colorEntryType != null && _colorsField != null &&
             _maxPagesField != null && _listMethod != null &&
-            _entryNameField != null && _entryMaterialField != null;
+            _entryNameField != null && _entryMaterialField != null &&
+            _partCollectionField != null && _partMaxPagesField != null &&
+            _sortPartCollectionMethod != null && _listPartsMethod != null;
+    }
+
+    private void ExtendPartRepository(Component gui)
+    {
+        ArrayList collection = _partCollectionField.GetValue(gui) as ArrayList;
+        if (collection == null) return; // Init() has not run yet.
+
+        int added = 0;
+        for (int i = 0; i < HiddenParts.Length; i++)
+        {
+            string resourceName = HiddenParts[i].ResourceName;
+            if (collection.Contains(resourceName)) continue;
+            GameObject prefab = Resources.Load("Parts/BodyParts/" + resourceName,
+                typeof(GameObject)) as GameObject;
+            if (prefab == null)
+            {
+                Debug.LogWarning("[ContentUnlocker] Missing hidden part prefab: " +
+                    resourceName);
+                continue;
+            }
+            collection.Add(resourceName);
+            added++;
+        }
+        if (added <= 0) return;
+
+        try
+        {
+            _sortPartCollectionMethod.Invoke(gui, null);
+            _partMaxPagesField.SetValue(gui,
+                Math.Max(1, (collection.Count + 9) / 10));
+            _listPartsMethod.Invoke(gui, null);
+            Debug.Log("[ContentUnlocker] Added " + added +
+                " hidden part variants; repository now has " + collection.Count +
+                " entries across " + ((collection.Count + 9) / 10) + " pages.");
+            _reportedPartsReady = true;
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError("[ContentUnlocker] Failed to refresh part repository: " +
+                ex.GetBaseException().Message);
+        }
     }
 
     private void ExtendColorRepository(Component gui)
@@ -187,7 +287,53 @@ public sealed class ContentUnlockerBehaviour : MonoBehaviour
     private void OnDestroy()
     {
         RemoveHiddenColorsFromOpenRepositories();
+        RemoveHiddenPartsFromOpenRepositories();
         if (_reportedReady) Debug.Log("[ContentUnlocker] Unloaded and removed hidden colors from open repositories.");
+        if (_reportedPartsReady) Debug.Log("[ContentUnlocker] Unloaded and removed hidden part variants from open repositories.");
+    }
+
+    private void RemoveHiddenPartsFromOpenRepositories()
+    {
+        if (!ResolveGameTypes()) return;
+        UnityEngine.Object[] objects = Resources.FindObjectsOfTypeAll(
+            _collectionGuiType);
+        for (int i = 0; i < objects.Length; i++)
+        {
+            Component gui = objects[i] as Component;
+            if (gui == null) continue;
+            ArrayList collection = _partCollectionField.GetValue(gui) as ArrayList;
+            if (collection == null) continue;
+
+            bool changed = false;
+            for (int partIndex = collection.Count - 1; partIndex >= 0; partIndex--)
+            {
+                string resourceName = collection[partIndex] as string;
+                if (!IsHiddenPartResource(resourceName)) continue;
+                collection.RemoveAt(partIndex);
+                changed = true;
+            }
+            if (!changed) continue;
+
+            try
+            {
+                _sortPartCollectionMethod.Invoke(gui, null);
+                _partMaxPagesField.SetValue(gui,
+                    Math.Max(1, (collection.Count + 9) / 10));
+                if (gui.gameObject != null && gui.gameObject.activeInHierarchy)
+                    _listPartsMethod.Invoke(gui, null);
+            }
+            catch { }
+        }
+    }
+
+    private static bool IsHiddenPartResource(string resourceName)
+    {
+        for (int i = 0; i < HiddenParts.Length; i++)
+        {
+            if (string.Equals(resourceName, HiddenParts[i].ResourceName,
+                StringComparison.Ordinal)) return true;
+        }
+        return false;
     }
 
     private void RemoveHiddenColorsFromOpenRepositories()
