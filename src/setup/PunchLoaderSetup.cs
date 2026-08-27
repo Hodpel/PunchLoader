@@ -4,10 +4,12 @@ using System.IO;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
+using System.Runtime.InteropServices;
+using System.Windows.Forms;
 
 public static class PunchLoaderSetup
 {
-    const string Version = "1.1.0";
+    internal const string Version = "1.1.0";
     // 已验证的 Megabyte Punch 原版程序集：历史零售版与 Steam 版。
     // 安装器只接受这两个完整文件哈希；不会把任意未注入 DLL 当作可注入版本。
     const string OriginalAssemblySha256 = "EF53EB7B6438422EA0C40C96C7CE698E03C164CC2B1E2A21F601DAF3DEDB8492";
@@ -19,26 +21,28 @@ public static class PunchLoaderSetup
     static string Root;
     static string Managed;
     static string Target;
-    static string PackagedOriginal;
     static string BackupDir;
     static string OriginalBackup;
     static string Manifest;
+    internal static Action<string> MessageSink;
 
+    [STAThread]
     public static int Main(string[] args)
     {
-        bool pause = args.Length == 0;
+        InitializePaths();
+        if (args.Length == 0)
+        {
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
+            Application.Run(new PunchLoaderSetupForm());
+            return 0;
+        }
+
+        AttachParentConsole();
         try
         {
             Console.OutputEncoding = Encoding.UTF8;
-            Root = Path.GetFullPath(AppDomain.CurrentDomain.BaseDirectory);
-            Managed = Path.Combine(Root, "MegabytePunch_Data\\Managed");
-            Target = Path.Combine(Managed, "Assembly-CSharp.dll");
-            PackagedOriginal = Path.Combine(Root, "Assembly-CSharp.dll");
-            BackupDir = Path.Combine(Managed, "PunchLoader.Backup");
-            OriginalBackup = Path.Combine(BackupDir, "Assembly-CSharp.original.dll");
-            Manifest = Path.Combine(BackupDir, "install-manifest.json");
-
-            string action = args.Length == 0 ? "install" : args[0].ToLowerInvariant();
+            string action = args[0].ToLowerInvariant();
             int result;
             if (action == "install") result = Install();
             else if (action == "status") result = Status();
@@ -48,19 +52,27 @@ public static class PunchLoaderSetup
                 Console.WriteLine("用法: PunchLoader.Setup.exe [install|status|uninstall]");
                 result = 2;
             }
-            if (pause) Pause();
             return result;
         }
         catch (Exception ex)
         {
             Console.WriteLine("[失败] " + ex.Message);
             Console.WriteLine(ex.ToString());
-            if (pause) Pause();
             return 1;
         }
     }
 
-    static int Install()
+    internal static void InitializePaths()
+    {
+        Root = Path.GetFullPath(AppDomain.CurrentDomain.BaseDirectory);
+        Managed = Path.Combine(Root, "MegabytePunch_Data\\Managed");
+        Target = Path.Combine(Managed, "Assembly-CSharp.dll");
+        BackupDir = Path.Combine(Managed, "PunchLoader.Backup");
+        OriginalBackup = Path.Combine(BackupDir, "Assembly-CSharp.original.dll");
+        Manifest = Path.Combine(BackupDir, "install-manifest.json");
+    }
+
+    internal static int Install()
     {
         ValidateGameRoot();
         Directory.CreateDirectory(BackupDir);
@@ -74,7 +86,6 @@ public static class PunchLoaderSetup
             File.Copy(Path.Combine(Managed, "UnityEngine.dll"), Path.Combine(work, "UnityEngine.dll"), true);
 
             int currentState = Inspect(injector, Target, work);
-            string cleanSource = EnsureOriginalBackup(currentState);
             string emergency = Path.Combine(BackupDir, "Assembly-CSharp.before-install.dll");
 
             // 该文件只服务于一次安装事务。新事务开始时清理上次异常退出可能留下的副本。
@@ -85,12 +96,16 @@ public static class PunchLoaderSetup
                 File.Copy(loader, Path.Combine(Managed, "PunchLoader.dll"), true);
                 Directory.CreateDirectory(Path.Combine(Root, "Mods"));
                 WriteManifest("installed", Sha256(Target), Sha256(loader));
-                Console.WriteLine("[完成] 已识别为完整注入版本，跳过重复注入；PunchLoader.dll 已更新。");
+                Emit("[完成] 已识别为完整注入版本，跳过重复注入；PunchLoader.dll 已更新。");
+                if (!HasValidOriginalBackup())
+                    Emit("[警告] 未找到原版备份；当前可正常更新，但安装器无法执行卸载。");
                 return 0;
             }
 
             if (currentState != StateOriginal && currentState != StatePartial)
                 throw new InvalidOperationException("目标 DLL 状态未知，已停止安装。");
+
+            string cleanSource = EnsureOriginalBackup(currentState);
 
             string patched = Path.Combine(work, "Assembly-CSharp.patched.dll");
             int patchExit = Run(injector,
@@ -118,8 +133,9 @@ public static class PunchLoaderSetup
                 throw;
             }
 
-            Console.WriteLine("[完成] 原版 DLL 已备份，PunchLoader 已注入并部署。");
-            Console.WriteLine("备份: " + OriginalBackup);
+            Emit("[完成] 原版 DLL 已备份，PunchLoader 已注入并部署。");
+            Emit("备份: " + OriginalBackup);
+            Emit("模组目录: " + Path.Combine(Root, "Mods"));
             return 0;
         }
         finally
@@ -128,7 +144,7 @@ public static class PunchLoaderSetup
         }
     }
 
-    static int Status()
+    internal static int Status()
     {
         ValidateGameRoot();
         Directory.CreateDirectory(BackupDir);
@@ -140,26 +156,37 @@ public static class PunchLoaderSetup
             Extract("PunchLoader.Setup.Mono.Cecil.dll", Path.Combine(work, "Mono.Cecil.dll"));
             File.Copy(Path.Combine(Managed, "UnityEngine.dll"), Path.Combine(work, "UnityEngine.dll"), true);
             int state = Inspect(injector, Target, work);
-            Console.WriteLine("Assembly-CSharp.dll SHA-256: " + Sha256(Target));
-            Console.WriteLine("状态: " + StateName(state));
+            Emit("Assembly-CSharp.dll SHA-256: " + Sha256(Target));
+            Emit("状态: " + StateName(state));
+            Emit("原版备份: " + (HasValidOriginalBackup() ? OriginalBackup : "不可用"));
             return state == StateInjected || state == StateOriginal ? 0 : 1;
         }
         finally { TryDeleteDirectory(work); }
     }
 
-    static int Uninstall()
+    internal static int Uninstall()
     {
         ValidateGameRoot();
         if (!File.Exists(OriginalBackup) || !IsKnownOriginal(OriginalBackup))
             throw new InvalidOperationException("未找到通过校验的原版备份，不能执行恢复。");
         string before = Path.Combine(BackupDir, "Assembly-CSharp.before-uninstall.dll");
+        if (File.Exists(before)) File.Delete(before);
         File.Copy(Target, before, true);
-        File.Copy(OriginalBackup, Target, true);
-        string loader = Path.Combine(Managed, "PunchLoader.dll");
-        if (File.Exists(loader)) File.Delete(loader);
-        WriteManifest("uninstalled", Sha256(Target), null);
-        Console.WriteLine("[完成] 已恢复原版 Assembly-CSharp.dll。模组目录保持不变。");
-        return 0;
+        try
+        {
+            File.Copy(OriginalBackup, Target, true);
+            string loader = Path.Combine(Managed, "PunchLoader.dll");
+            if (File.Exists(loader)) File.Delete(loader);
+            WriteManifest("uninstalled", Sha256(Target), null);
+            File.Delete(before);
+            Emit("[完成] 已恢复原版 Assembly-CSharp.dll。模组目录保持不变。");
+            return 0;
+        }
+        catch
+        {
+            if (File.Exists(before)) File.Copy(before, Target, true);
+            throw;
+        }
     }
 
     static void ValidateGameRoot()
@@ -178,6 +205,10 @@ public static class PunchLoaderSetup
         {
             if (!IsKnownOriginal(OriginalBackup))
                 throw new InvalidOperationException("永久备份哈希不匹配: " + OriginalBackup);
+            if (currentState == StateOriginal &&
+                !string.Equals(Sha256(OriginalBackup), Sha256(Target), StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException(
+                    "现有原版备份与当前游戏版本不一致。请先移走 PunchLoader.Backup 后重试。");
             return OriginalBackup;
         }
 
@@ -191,12 +222,63 @@ public static class PunchLoaderSetup
             return OriginalBackup;
         }
 
-        if (!File.Exists(PackagedOriginal))
-            throw new InvalidOperationException("当前 DLL 已被修改，且安装包中的原版 Assembly-CSharp.dll 不存在。");
-        if (!IsKnownOriginal(PackagedOriginal))
-            throw new InvalidOperationException("安装包中的 Assembly-CSharp.dll 版本或哈希不匹配。");
-        File.Copy(PackagedOriginal, OriginalBackup, false);
-        return OriginalBackup;
+        throw new InvalidOperationException(
+            "当前 DLL 已被部分修改，且没有可用的同版本原版备份。" +
+            "请通过 Steam 验证游戏文件或恢复正确版本的原版 DLL 后重试。");
+    }
+
+    internal static SetupSnapshot ReadSnapshot()
+    {
+        SetupSnapshot snapshot = new SetupSnapshot();
+        snapshot.Root = Root;
+        snapshot.BackupPath = OriginalBackup;
+        snapshot.GameFound = File.Exists(Path.Combine(Root, "MegabytePunch.exe")) && File.Exists(Target);
+        snapshot.BackupValid = HasValidOriginalBackup();
+        if (!snapshot.GameFound)
+        {
+            snapshot.State = "未找到游戏";
+            return snapshot;
+        }
+
+        Directory.CreateDirectory(BackupDir);
+        string work = Path.Combine(BackupDir, ".gui-status-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(work);
+        try
+        {
+            string injector = Extract("PunchLoader.Setup.Injector.exe", Path.Combine(work, "Injector.exe"));
+            Extract("PunchLoader.Setup.Mono.Cecil.dll", Path.Combine(work, "Mono.Cecil.dll"));
+            File.Copy(Path.Combine(Managed, "UnityEngine.dll"), Path.Combine(work, "UnityEngine.dll"), true);
+            int state = Inspect(injector, Target, work);
+            if (state == StateOriginal && IsKnownOriginal(Target))
+                snapshot.State = StateName(state) + "（" + OriginalChannel(Target) + "）";
+            else if (state == StateOriginal)
+                snapshot.State = "不受支持的未注入版本";
+            else
+                snapshot.State = StateName(state);
+            snapshot.CanInstall = state == StateInjected ||
+                (state == StateOriginal && IsKnownOriginal(Target)) ||
+                (state == StatePartial && snapshot.BackupValid);
+            snapshot.CanUninstall = snapshot.BackupValid;
+        }
+        catch (Exception ex)
+        {
+            snapshot.State = "检查失败: " + ex.Message;
+        }
+        finally { TryDeleteDirectory(work); }
+        return snapshot;
+    }
+
+    static bool HasValidOriginalBackup()
+    {
+        return File.Exists(OriginalBackup) && IsKnownOriginal(OriginalBackup);
+    }
+
+    static string OriginalChannel(string path)
+    {
+        string hash = Sha256(path);
+        if (string.Equals(hash, SteamAssemblySha256, StringComparison.OrdinalIgnoreCase)) return "Steam";
+        if (string.Equals(hash, OriginalAssemblySha256, StringComparison.OrdinalIgnoreCase)) return "Retail";
+        return "未知";
     }
 
     static int Inspect(string injector, string assembly, string work)
@@ -219,8 +301,8 @@ public static class PunchLoaderSetup
         string stdout = process.StandardOutput.ReadToEnd();
         string stderr = process.StandardError.ReadToEnd();
         process.WaitForExit();
-        if (stdout.Length > 0) Console.Write(stdout);
-        if (stderr.Length > 0) Console.Write(stderr);
+        if (stdout.Length > 0) Emit(stdout.TrimEnd());
+        if (stderr.Length > 0) Emit(stderr.TrimEnd());
         return process.ExitCode;
     }
 
@@ -248,8 +330,7 @@ public static class PunchLoaderSetup
 
     static string OriginalBackupSha256()
     {
-        // 安装 Steam 版时，清单必须记录 Steam 原版的哈希，不能误写成历史零售版哈希。
-        return File.Exists(OriginalBackup) ? Sha256(OriginalBackup) : OriginalAssemblySha256;
+        return HasValidOriginalBackup() ? Sha256(OriginalBackup) : null;
     }
 
     static string Sha256(string path)
@@ -272,7 +353,7 @@ public static class PunchLoaderSetup
             "  \"setupVersion\": \"" + Version + "\",\r\n" +
             "  \"status\": \"" + status + "\",\r\n" +
             "  \"updatedUtc\": \"" + DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ") + "\",\r\n" +
-            "  \"originalSha256\": \"" + OriginalBackupSha256() + "\",\r\n" +
+            "  \"originalSha256\": " + JsonString(OriginalBackupSha256()) + ",\r\n" +
             "  \"assemblySha256\": \"" + assemblyHash + "\",\r\n" +
             "  \"loaderSha256\": " + (loaderHash == null ? "null" : "\"" + loaderHash + "\"") + "\r\n" +
             "}\r\n";
@@ -280,6 +361,7 @@ public static class PunchLoaderSetup
     }
 
     static string Quote(string value) { return "\"" + value.Replace("\"", "\\\"") + "\""; }
+    static string JsonString(string value) { return value == null ? "null" : Quote(value); }
     static string StateName(int state)
     {
         if (state == StateOriginal) return "原版";
@@ -292,9 +374,42 @@ public static class PunchLoaderSetup
         try { if (Directory.Exists(path)) Directory.Delete(path, true); }
         catch { }
     }
-    static void Pause()
+    static void Emit(string message)
     {
-        Console.WriteLine("按 Enter 键关闭窗口...");
-        Console.ReadLine();
+        if (MessageSink != null) MessageSink(message);
+        try { Console.WriteLine(message); }
+        catch { }
     }
+
+    static void AttachParentConsole()
+    {
+        try
+        {
+            if (AttachConsole(AttachParentProcess))
+            {
+                StreamWriter output = new StreamWriter(Console.OpenStandardOutput(), Encoding.UTF8);
+                output.AutoFlush = true;
+                Console.SetOut(output);
+                StreamWriter error = new StreamWriter(Console.OpenStandardError(), Encoding.UTF8);
+                error.AutoFlush = true;
+                Console.SetError(error);
+            }
+        }
+        catch { }
+    }
+
+    const uint AttachParentProcess = 0xFFFFFFFF;
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool AttachConsole(uint processId);
+}
+
+public sealed class SetupSnapshot
+{
+    public string Root;
+    public string State;
+    public string BackupPath;
+    public bool GameFound;
+    public bool BackupValid;
+    public bool CanInstall;
+    public bool CanUninstall;
 }

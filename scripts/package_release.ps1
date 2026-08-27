@@ -5,17 +5,11 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
-$expectedOriginal = 'EF53EB7B6438422EA0C40C96C7CE698E03C164CC2B1E2A21F601DAF3DEDB8492'
-$original = Join-Path $root 'deps\Game\Retail\Assembly-CSharp.dll'
 
 & (Join-Path $PSScriptRoot 'build_setup.ps1') -Csc $Csc
 if ($LASTEXITCODE -ne 0) {
     throw "Setup build failed: $LASTEXITCODE"
 }
-if ((Get-FileHash -Algorithm SHA256 -LiteralPath $original).Hash -ne $expectedOriginal) {
-    throw 'Original Assembly-CSharp.dll hash mismatch'
-}
-
 $name = 'PunchLoader-v' + $Version
 $dist = Join-Path $root 'dist'
 $stage = Join-Path (Join-Path $dist 'unpacked') $name
@@ -36,17 +30,14 @@ foreach ($candidate in @($stage, $zip)) {
 New-Item -ItemType Directory -Force -Path $stage | Out-Null
 Copy-Item -LiteralPath (Join-Path $root 'build\PunchLoader.Setup.exe') `
     -Destination (Join-Path $stage 'PunchLoader.Setup.exe') -Force
-Copy-Item -LiteralPath $original `
-    -Destination (Join-Path $stage 'Assembly-CSharp.dll') -Force
 Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $archive = [IO.Compression.ZipFile]::OpenRead($zip)
 try {
     $entries = @($archive.Entries | ForEach-Object { $_.FullName -replace '\\', '/' })
-    if ($entries.Count -ne 2 -or
-        $entries -notcontains 'PunchLoader.Setup.exe' -or
-        $entries -notcontains 'Assembly-CSharp.dll') {
+    if ($entries.Count -ne 1 -or
+        $entries -notcontains 'PunchLoader.Setup.exe') {
         throw ('Unexpected PunchLoader package contents: ' + ($entries -join ', '))
     }
 }

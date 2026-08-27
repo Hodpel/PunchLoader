@@ -24,3 +24,6 @@ try {
 finally {
     Pop-Location
 }
+
+& (Join-Path $PSScriptRoot 'test_setup.ps1') -Csc $Csc
+if ($LASTEXITCODE -ne 0) { throw "Setup tests failed: $LASTEXITCODE" }

@@ -1,8 +1,12 @@
 /nologo
-/target:exe
+/target:winexe
 /out:build\PunchLoader.Setup.exe
 /main:PunchLoaderSetup
+/reference:System.Drawing.dll
+/reference:System.Windows.Forms.dll
 /resource:build\Injector.exe,PunchLoader.Setup.Injector.exe
 /resource:build\PunchLoader.dll,PunchLoader.Setup.PunchLoader.dll
 /resource:deps\Cecil\Mono.Cecil.dll,PunchLoader.Setup.Mono.Cecil.dll
 src\setup\PunchLoaderSetup.cs
+src\setup\PunchLoaderSetupForm.cs
+src\setup\AssemblyInfo.cs
