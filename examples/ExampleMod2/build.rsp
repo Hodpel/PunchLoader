@@ -1,7 +1,0 @@
-/target:library
-/out:build\examples\ExampleMod2\ExampleMod2.dll
-/reference:deps\Unity\UnityEngine.dll
-/reference:build\PunchLoader.dll
-/reference:deps\Game\Common\mscorlib.dll
-/nostdlib
-examples\ExampleMod2\ExampleMod2.cs

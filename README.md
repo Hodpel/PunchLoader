@@ -10,7 +10,7 @@ PunchLoader/
 │   ├── injector/  Injector.exe — 用 Mono.Cecil 离线修改 Assembly-CSharp.dll
 │   ├── modloader/ PunchLoader.dll — 游戏内 mod 框架
 │   └── setup/     PunchLoader.Setup.exe — 安装、备份、注入与卸载
-├── examples/     第三方模组开发示例
+├── ExampleMod/   最小模组开发与 Hook 生命周期示例
 ├── deps/         版本化编译依赖（含 Retail / Steam 游戏参考 DLL）
 ├── docs/         技术文档
 ├── scripts/      编译 / 注入 / 部署脚本
@@ -40,7 +40,7 @@ PunchLoader/
 源码目录不放置 DLL。框架产物写入 `build/`，示例产物写入：
 
 ```text
-build/examples/<ExampleId>/<ExampleId>.dll
+build/ExampleMod/ExampleMod.dll
 ```
 
 ## 官方模组

@@ -1,8 +1,0 @@
-{
-    "id": "ExampleMod2",
-    "name": "Example Mod2",
-    "version": "2.0.0",
-    "author": "Test",
-    "entryType": "ExampleMod2Plugin",
-    "priority": 1
-}

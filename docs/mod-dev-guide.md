@@ -2,13 +2,14 @@
 
 ## 目录结构
 
-```markdown
+```text
 {游戏目录}/Mods/
 └── YourModName/
-    ├── plugin.json        ← mod 清单
-    ├── YourMod.dll        ← 编译产物
-    └── YourMod.cs         ← 源码
+    ├── plugin.json
+    └── YourMod.dll
 ```
+
+源码和构建脚本不需要随运行包分发。
 
 ## plugin.json 格式
 
@@ -27,60 +28,65 @@
 | 字段 | 说明 |
 |------|------|
 | `id` | 唯一标识符 |
-| `entryType` | 实现了 `IModPlugin` 的完整类型名（含命名空间） |
-| `priority` | 加载顺序，越小越先（默认 0） |
-| `requiresRestart` | 为 `true` 时，启用和关闭只保存配置，重启游戏后生效（默认 `false`） |
+| `entryType` | 实现 `IModPlugin` 的完整类型名（含命名空间） |
+| `priority` | 加载顺序，数值越小越先加载（默认 0） |
+| `requiresRestart` | 为 `true` 时，启用状态在重启游戏后生效（默认 `false`） |
 
 ## 实现 IModPlugin
 
 ```csharp
-using System;
 using PunchLoader;
+using UnityEngine;
 
 namespace YourMod
 {
     public class EntryClass : IModPlugin
     {
+        private BeginGUIHandler _beginGUIHandler;
+
         public string GetId() { return "your-mod-id"; }
         public string GetName() { return "Your Mod"; }
         public string GetVersion() { return "1.0.0"; }
 
         public void OnLoad()
         {
-            // 在这里注册钩子
-            HookManager.Register("BeginGUI",
-                new Action<MonoBehaviour>(OnBeginGUI));
+            _beginGUIHandler = OnBeginGUI;
+            HookManager.Register(_beginGUIHandler);
         }
 
         public void OnUnload()
         {
-            // 清理
+            HookManager.Unregister(_beginGUIHandler);
+            _beginGUIHandler = null;
         }
 
         private void OnBeginGUI(MonoBehaviour menu)
         {
-            // 每帧 GUI 渲染前执行
+            // 每帧菜单 GUI 渲染前执行。
         }
     }
 }
 ```
 
-## 可用 Hook 点
+每个已注册的回调都应在 `OnUnload()` 中注销，避免模组热关闭后继续执行。
+仓库根目录的 `ExampleMod/` 提供了可直接编译的最小实现。
 
-| 注册名 | 回调签名 | 触发时机 |
-|--------|---------|---------|
-| `"BeginGUI"` | `Action<MonoBehaviour>` | 每个菜单渲染前，可修改文本/字体 |
-| `"CheckConfirm"` | `Func<string, string>` | 菜单确认时，参数是选中条目的文本，返回英文原文 |
+## 可用 Hook 类型
 
-## 多个 mod 共存
+| 委托类型 | 回调签名 | 触发时机 |
+|----------|----------|----------|
+| `BeginGUIHandler` | `void (MonoBehaviour menu)` | 菜单 GUI 渲染前 |
+| `PreDoActionHandler` | `string (string action)` | 菜单动作执行前 |
+| `TextTransformHandler` | `string (string text)` | GUILayout 文本渲染前 |
+| `GUILayoutLabelHandler` | `bool (string original, string rendered, GUIStyle style, GUILayoutOption[] options)` | 接管 GUILayout 标签绘制 |
+| `TextMeshTextHandler` | `bool (TextMesh mesh, string original)` | TextMesh 文本写入前 |
 
-多个 mod 注册同一个 hook 点时，按 `priority` 顺序链式执行：
-- `"CheckConfirm"`: entry → modA(entry) → modB(result) → ... → DoAction
-- `"BeginGUI"`: 按 priority 顺序逐个调用
+通过对应的强类型委托调用 `HookManager.Register(...)` 和
+`HookManager.Unregister(...)`。同类回调按照模组加载和注册顺序执行；单个回调抛出异常不会阻断后续回调。
 
 ## 编译示例（.rsp 文件）
 
-```
+```text
 /target:library
 /out:YourMod.dll
 /reference:"{游戏目录}/MegabytePunch_Data/Managed/UnityEngine.dll"
@@ -90,8 +96,8 @@ namespace YourMod
 YourMod.cs
 ```
 
-编译命令:
+编译命令：
 
-```bash
+```text
 csc @build.rsp
 ```

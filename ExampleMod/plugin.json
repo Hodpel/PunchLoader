@@ -3,6 +3,6 @@
     "name": "Example Mod",
     "version": "1.0.0",
     "author": "PunchLoader",
-    "entryType": "ExamplePlugin",
+    "entryType": "ExampleMod.Plugin",
     "priority": 0
 }

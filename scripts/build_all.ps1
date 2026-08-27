@@ -10,20 +10,16 @@ if ($LASTEXITCODE -ne 0) {
     throw "PunchLoader build failed: $LASTEXITCODE"
 }
 
-foreach ($example in @('ExampleMod', 'ExampleMod2')) {
-    $outputDirectory = Join-Path $root ('build\examples\' + $example)
-    New-Item -ItemType Directory -Force -Path $outputDirectory | Out-Null
-    Push-Location $root
-    try {
-        & $Csc ("@examples\" + $example + "\build.rsp")
-        if ($LASTEXITCODE -ne 0) {
-            throw "$example build failed: $LASTEXITCODE"
-        }
-    }
-    finally {
-        Pop-Location
+New-Item -ItemType Directory -Force -Path (Join-Path $root 'build\ExampleMod') | Out-Null
+Push-Location $root
+try {
+    & $Csc '@ExampleMod\build.rsp'
+    if ($LASTEXITCODE -ne 0) {
+        throw "ExampleMod build failed: $LASTEXITCODE"
     }
 }
+finally {
+    Pop-Location
+}
 
-Write-Host 'Built PunchLoader and example mods.'
-
+Write-Host 'Built PunchLoader and ExampleMod.'
