@@ -1,5 +1,5 @@
 param(
-    [string]$Version = '1.0.1',
+    [string]$Version = '1.1.0',
     [string]$Csc = 'C:\Windows\Microsoft.NET\Framework\v3.5\csc.exe'
 )
 

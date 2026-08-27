@@ -21,7 +21,13 @@
     "author": "You",
     "entryType": "YourMod.EntryClass",
     "priority": 0,
-    "requiresRestart": false
+    "requiresRestart": false,
+    "dependencies": [
+        {
+            "id": "PunchLoader.ContentAPI",
+            "minVersion": "1.0.0"
+        }
+    ]
 }
 ```
 
@@ -31,6 +37,15 @@
 | `entryType` | 实现 `IModPlugin` 的完整类型名（含命名空间） |
 | `priority` | 加载顺序，数值越小越先加载（默认 0） |
 | `requiresRestart` | 为 `true` 时，启用状态在重启游戏后生效（默认 `false`） |
+| `dependencies` | 必需模组数组；省略或使用空数组表示没有依赖 |
+| `dependencies[].id` | 必需模组的 `id`，不区分大小写 |
+| `dependencies[].minVersion` | 可选最低版本，采用语义化版本比较 |
+
+依赖关系优先于 `priority`。即使使用者的 `priority` 更小，PunchLoader 也会先加载其
+依赖。缺失依赖、版本不足、重复 ID 或循环依赖都会阻止相关模组加载，并在模组列表中
+标记为 `[ERR]`，具体原因写入游戏日志。启用中的模组仍依赖某个模组时，后者不能被关闭。
+作为其他模组依赖项的模组必须在自身 `plugin.json` 中声明 `version`，因为 PunchLoader
+会在加载任何 DLL 之前完成版本校验和依赖排序。
 
 ## 实现 IModPlugin
 

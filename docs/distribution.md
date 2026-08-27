@@ -38,7 +38,7 @@ PunchLoader.Setup.exe uninstall
 ## 维护者打包
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\package_release.ps1 -Version 1.0.1
+powershell -ExecutionPolicy Bypass -File scripts\package_release.ps1 -Version 1.1.0
 ```
 
 未压缩目录写入 `dist/unpacked/PunchLoader-v<版本>/`，最终 ZIP 写入 `dist/`。

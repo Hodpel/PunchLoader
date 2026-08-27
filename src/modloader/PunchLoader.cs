@@ -32,6 +32,11 @@ namespace PunchLoader
         public bool Loaded;        // 是否已调用 OnLoad()
         public bool Enabled = true;// 期望启用状态（会持久化到 mod-state.json）
         public bool RequiresRestart;// 切换状态后是否必须重启游戏才生效
+        public string DirectoryPath;
+        public string ManifestPath;
+        public List<ModDependency> Dependencies = new List<ModDependency>();
+        public string DependencyError; // 清单、缺失依赖、版本或循环依赖错误
+        public string LoadError;       // DLL 或 OnLoad 运行时错误
     }
 
     // ====================================================================
@@ -48,9 +53,9 @@ namespace PunchLoader
     }
 
     // ====================================================================
-    // SimpleJson: 手写 JSON 解析器
-    // .NET 2.0 没有 Json.NET / System.Json，只能用纯字符串解析
-    // 只支持一层 { "key": "value" } — 够解析 plugin.json 了
+    // SimpleJson: 面向 plugin.json 的轻量 JSON 解析器
+    // .NET 2.0 没有 Json.NET / System.Json，因此只实现清单需要的
+    // 顶层字段和对象数组，不作为通用 JSON 库使用。
     // ====================================================================
     public static class SimpleJson
     {
@@ -86,13 +91,21 @@ namespace PunchLoader
                     i++;
                 if (i >= json.Length) break;
 
-                // 解析 value: "string" 或 数字/bool
+                // 解析 value: string、复合值或数字/bool。复合值按原始 JSON
+                // 保留，供依赖数组等上层解析器继续处理。
                 string val;
                 if (json[i] == '"')
                 {
-                    int vEnd = json.IndexOf('"', i + 1);
+                    int vEnd = FindStringEnd(json, i);
                     if (vEnd < 0) break;
                     val = json.Substring(i + 1, vEnd - i - 1);
+                    i = vEnd + 1;
+                }
+                else if (json[i] == '[' || json[i] == '{')
+                {
+                    int vEnd = FindCompositeEnd(json, i);
+                    if (vEnd < 0) break;
+                    val = json.Substring(i, vEnd - i + 1);
                     i = vEnd + 1;
                 }
                 else
@@ -105,6 +118,77 @@ namespace PunchLoader
                 }
 
                 result[key] = val;
+            }
+            return result;
+        }
+
+        private static int FindStringEnd(string json, int quoteStart)
+        {
+            bool escaped = false;
+            for (int i = quoteStart + 1; i < json.Length; i++)
+            {
+                char c = json[i];
+                if (escaped) { escaped = false; continue; }
+                if (c == '\\') { escaped = true; continue; }
+                if (c == '"') return i;
+            }
+            return -1;
+        }
+
+        private static int FindCompositeEnd(string json, int start)
+        {
+            char open = json[start];
+            char close = open == '[' ? ']' : '}';
+            int depth = 0;
+            bool inString = false;
+            bool escaped = false;
+            for (int i = start; i < json.Length; i++)
+            {
+                char c = json[i];
+                if (inString)
+                {
+                    if (escaped) { escaped = false; continue; }
+                    if (c == '\\') { escaped = true; continue; }
+                    if (c == '"') inString = false;
+                    continue;
+                }
+                if (c == '"') { inString = true; continue; }
+                if (c == open) depth++;
+                else if (c == close)
+                {
+                    depth--;
+                    if (depth == 0) return i;
+                }
+            }
+            return -1;
+        }
+
+        public static List<Dictionary<string, string>> GetObjectArray(
+            Dictionary<string, string> obj, string key)
+        {
+            List<Dictionary<string, string>> result =
+                new List<Dictionary<string, string>>();
+            string value;
+            if (!obj.TryGetValue(key, out value) || string.IsNullOrEmpty(value))
+                return result;
+
+            value = value.Trim();
+            if (!value.StartsWith("[") || !value.EndsWith("]"))
+                throw new FormatException(key + " must be a JSON array");
+
+            int i = 1;
+            while (i < value.Length - 1)
+            {
+                while (i < value.Length - 1 &&
+                    (char.IsWhiteSpace(value[i]) || value[i] == ',')) i++;
+                if (i >= value.Length - 1) break;
+                if (value[i] != '{')
+                    throw new FormatException(key + " entries must be JSON objects");
+                int end = FindCompositeEnd(value, i);
+                if (end < 0)
+                    throw new FormatException("Unterminated object in " + key);
+                result.Add(ParseObject(value.Substring(i, end - i + 1)));
+                i = end + 1;
             }
             return result;
         }
@@ -217,9 +301,10 @@ namespace PunchLoader
 
         void OnDestroy()
         {
-            // 游戏退出时逐个卸载
-            foreach (ModInfo mod in _mods)
+            // 与加载顺序相反地卸载，确保依赖 API 晚于其使用者退出。
+            for (int i = _mods.Count - 1; i >= 0; i--)
             {
+                ModInfo mod = _mods[i];
                 if (mod.Loaded && mod.Plugin != null)
                 {
                     try { mod.Plugin.OnUnload(); }
@@ -246,39 +331,29 @@ namespace PunchLoader
             LoadEnabledStates();
 
             string[] subDirs = Directory.GetDirectories(modsPath);
+            Array.Sort(subDirs, StringComparer.OrdinalIgnoreCase);
             Debug.Log("[PunchLoader] Found " + subDirs.Length + " subdirectories");
 
-            // 阶段1: 扫描所有子目录，收集 ModInfo
+            // 阶段1: 只读取全部清单。此时不能加载 DLL，否则依赖程序集可能
+            // 尚未进入 AppDomain，扫描目录的随机顺序就会影响加载结果。
             foreach (string dir in subDirs)
             {
                 string manifest = Path.Combine(dir, "plugin.json");
                 if (!File.Exists(manifest)) continue;
-                try { LoadMod(dir, manifest); }
+                try { DiscoverMod(dir, manifest); }
                 catch (Exception ex) { Debug.LogError("[PunchLoader] Failed: " + dir + " - " + ex); }
             }
 
-            // 按 Priority 升序排列
-            _mods.Sort(delegate(ModInfo a, ModInfo b) { return a.Priority.CompareTo(b.Priority); });
-
-            // 阶段2: 按序调用 OnLoad()
+            // 阶段2: 校验依赖并拓扑排序。依赖关系始终优先于 priority；
+            // 互不依赖的模组仍按 priority 和 id 保持确定顺序。
+            _mods = ModDependencyResolver.Resolve(_mods);
             foreach (ModInfo mod in _mods)
-            {
-                if (!mod.Enabled)
-                {
-                    Debug.Log("[PunchLoader] Disabled by configuration: " + mod.Name);
-                    continue;
-                }
-                try
-                {
-                    mod.Plugin.OnLoad();
-                    mod.Loaded = true;
-                    Debug.Log("[PunchLoader] Loaded: " + mod.Name + " v" + mod.Version);
-                }
-                catch (Exception ex)
-                {
-                    Debug.LogError("[PunchLoader] OnLoad failed: " + mod.Name + " - " + ex);
-                }
-            }
+                if (!string.IsNullOrEmpty(mod.DependencyError))
+                    Debug.LogError("[PunchLoader] " + GetModLabel(mod) + ": " +
+                        mod.DependencyError);
+
+            // 阶段3: 按解析后的依赖顺序加载程序集并执行 OnLoad。
+            TryLoadEnabledMods();
         }
 
         private void LoadEnabledStates()
@@ -352,7 +427,29 @@ namespace PunchLoader
 
         public void SetModEnabled(ModInfo mod, bool enabled)
         {
-            if (mod == null || mod.Plugin == null || mod.Enabled == enabled) return;
+            if (mod == null || mod.Enabled == enabled) return;
+
+            if (enabled)
+            {
+                string issue = GetDependencyIssue(mod, true);
+                if (!string.IsNullOrEmpty(issue))
+                {
+                    mod.LoadError = issue;
+                    Debug.LogWarning("[PunchLoader] Cannot enable " + GetModLabel(mod) +
+                        ": " + issue);
+                    return;
+                }
+            }
+            else
+            {
+                ModInfo dependent = FindBlockingDependent(mod);
+                if (dependent != null)
+                {
+                    Debug.LogWarning("[PunchLoader] Cannot disable " + GetModLabel(mod) +
+                        ": required by enabled mod " + GetModLabel(dependent));
+                    return;
+                }
+            }
 
             mod.Enabled = enabled;
             SaveEnabledStates();
@@ -368,13 +465,13 @@ namespace PunchLoader
             {
                 if (enabled && !mod.Loaded)
                 {
-                    mod.Plugin.OnLoad();
-                    mod.Loaded = true;
+                    TryLoadEnabledMods();
                 }
                 else if (!enabled && mod.Loaded)
                 {
                     mod.Plugin.OnUnload();
                     mod.Loaded = false;
+                    mod.LoadError = null;
                 }
             }
             catch (Exception ex)
@@ -383,8 +480,8 @@ namespace PunchLoader
             }
         }
 
-        // 加载单个 mod: 读 plugin.json → 找入口类所在的 dll → 实例化 IModPlugin
-        private void LoadMod(string dir, string manifestPath)
+        // 第一阶段只读取清单，避免在依赖排序完成前触碰模组程序集。
+        private void DiscoverMod(string dir, string manifestPath)
         {
             string json = File.ReadAllText(manifestPath, Encoding.UTF8);
             Dictionary<string, string> data = SimpleJson.ParseObject(json);
@@ -398,6 +495,8 @@ namespace PunchLoader
             }
 
             ModInfo info = new ModInfo();
+            info.DirectoryPath = dir;
+            info.ManifestPath = manifestPath;
             info.EntryType = entryType;
             string strVal;
             if (data.TryGetValue("id", out strVal)) info.Id = strVal;
@@ -407,40 +506,147 @@ namespace PunchLoader
             info.Priority = SimpleJson.GetInt(data, "priority", 0);
             info.RequiresRestart = SimpleJson.GetBool(data, "requiresRestart", false);
 
+            if (string.IsNullOrEmpty(info.Id))
+            {
+                Debug.LogWarning("[PunchLoader] Missing id in " + manifestPath);
+                return;
+            }
+
+            List<Dictionary<string, string>> dependencies =
+                SimpleJson.GetObjectArray(data, "dependencies");
+            foreach (Dictionary<string, string> dependencyData in dependencies)
+            {
+                ModDependency dependency = new ModDependency();
+                dependencyData.TryGetValue("id", out dependency.Id);
+                dependencyData.TryGetValue("minVersion", out dependency.MinVersion);
+                if (string.IsNullOrEmpty(dependency.Id))
+                    throw new FormatException("Dependency id is required in " + manifestPath);
+                info.Dependencies.Add(dependency);
+            }
+
+            info.Enabled = GetConfiguredEnabled(info.Id);
+            _mods.Add(info);
+            Debug.Log("[PunchLoader] Discovered: " + GetModLabel(info));
+        }
+
+        private void TryLoadEnabledMods()
+        {
+            foreach (ModInfo mod in _mods)
+            {
+                if (!mod.Enabled || mod.Loaded) continue;
+                string issue = GetDependencyIssue(mod, true);
+                if (!string.IsNullOrEmpty(issue))
+                {
+                    mod.LoadError = issue;
+                    Debug.LogWarning("[PunchLoader] Blocked: " + GetModLabel(mod) +
+                        " - " + issue);
+                    continue;
+                }
+                if (!LoadModAssembly(mod)) continue;
+                try
+                {
+                    mod.Plugin.OnLoad();
+                    mod.Loaded = true;
+                    mod.LoadError = null;
+                    Debug.Log("[PunchLoader] Loaded: " + GetModLabel(mod) +
+                        " v" + (mod.Version ?? "?"));
+                }
+                catch (Exception ex)
+                {
+                    mod.LoadError = "OnLoad failed: " + ex.Message;
+                    Debug.LogError("[PunchLoader] OnLoad failed: " +
+                        GetModLabel(mod) + " - " + ex);
+                }
+            }
+        }
+
+        private bool LoadModAssembly(ModInfo info)
+        {
+            if (info.Plugin != null) return true;
+
             // 遍历该目录下所有 .dll，找到包含 entryType 的那个
-            string[] dlls = Directory.GetFiles(dir, "*.dll");
+            string[] dlls = Directory.GetFiles(info.DirectoryPath, "*.dll");
+            Array.Sort(dlls, StringComparer.OrdinalIgnoreCase);
             foreach (string dll in dlls)
             {
                 try
                 {
                     Assembly asm = Assembly.LoadFrom(dll);
-                    Type type = asm.GetType(entryType);
+                    Type type = asm.GetType(info.EntryType);
                     if (type != null)
                     {
                         object obj = Activator.CreateInstance(type);
                         info.Plugin = obj as IModPlugin;
                         if (info.Plugin == null)
                         {
-                            Debug.LogWarning("[PunchLoader] Entry does not implement IModPlugin: " + entryType);
+                            Debug.LogWarning("[PunchLoader] Entry does not implement IModPlugin: " +
+                                info.EntryType);
                             continue;
                         }
                         info.Assembly = asm;
-                        if (string.IsNullOrEmpty(info.Id)) info.Id = info.Plugin.GetId();
                         if (string.IsNullOrEmpty(info.Name)) info.Name = info.Plugin.GetName();
                         if (string.IsNullOrEmpty(info.Version)) info.Version = info.Plugin.GetVersion();
-                        info.Enabled = GetConfiguredEnabled(info.Id);
-                        _mods.Add(info);
-                        Debug.Log("[PunchLoader] Discovered: " + (info.Name ?? info.Id));
-                        return;
+                        return true;
                     }
                 }
                 catch (Exception ex)
                 {
+                    info.LoadError = "DLL load failed: " + ex.Message;
                     Debug.LogWarning("[PunchLoader] DLL err: " + dll + " - " + ex.Message);
                 }
             }
 
-            Debug.LogWarning("[PunchLoader] Type " + entryType + " not found in " + dir);
+            info.LoadError = "Entry type not found: " + info.EntryType;
+            Debug.LogWarning("[PunchLoader] Type " + info.EntryType + " not found in " +
+                info.DirectoryPath);
+            return false;
+        }
+
+        private string GetDependencyIssue(ModInfo mod, bool requireLoaded)
+        {
+            if (!string.IsNullOrEmpty(mod.DependencyError)) return mod.DependencyError;
+            foreach (ModDependency dependency in mod.Dependencies)
+            {
+                ModInfo target = FindMod(dependency.Id);
+                if (target == null) return "Missing dependency: " + dependency.Id;
+                if (!target.Enabled) return "Dependency disabled: " + dependency.Id;
+                if (!ModVersion.Satisfies(target.Version, dependency.MinVersion))
+                    return "Dependency version mismatch: " + dependency.Id;
+                if (requireLoaded && !target.Loaded)
+                    return "Dependency not loaded: " + dependency.Id;
+            }
+            return null;
+        }
+
+        private ModInfo FindMod(string id)
+        {
+            foreach (ModInfo mod in _mods)
+                if (string.Equals(mod.Id, id, StringComparison.OrdinalIgnoreCase))
+                    return mod;
+            return null;
+        }
+
+        private ModInfo FindBlockingDependent(ModInfo dependency)
+        {
+            foreach (ModInfo mod in _mods)
+            {
+                if (object.ReferenceEquals(mod, dependency)) continue;
+                // Desired-enabled dependents would fail on the next launch. A
+                // currently loaded dependent also blocks immediate unloading;
+                // when the dependency itself is restart-only, both can safely
+                // be scheduled off together for the next launch.
+                if (!mod.Enabled && (!mod.Loaded || dependency.RequiresRestart))
+                    continue;
+                foreach (ModDependency required in mod.Dependencies)
+                    if (string.Equals(required.Id, dependency.Id,
+                        StringComparison.OrdinalIgnoreCase)) return mod;
+            }
+            return null;
+        }
+
+        private static string GetModLabel(ModInfo mod)
+        {
+            return mod.Name ?? mod.Id ?? "?";
         }
     }
 
@@ -849,7 +1055,8 @@ namespace PunchLoader
         {
             bool modEntry = str != null &&
                 (str.StartsWith("[ON]", StringComparison.Ordinal) ||
-                 str.StartsWith("[OFF]", StringComparison.Ordinal));
+                 str.StartsWith("[OFF]", StringComparison.Ordinal) ||
+                 str.StartsWith("[ERR]", StringComparison.Ordinal));
             if (modEntry && GUIData != null && GUIData.smallButtonStyle != null)
                 DrawButton(str, GUIData.smallButtonStyle);
             else
@@ -872,6 +1079,10 @@ namespace PunchLoader
             {
                 ModInfo m = _mods[i];
                 string state = m.Enabled ? "[ON]" : "[OFF]";
+                if (m.Enabled && !m.Loaded &&
+                    (!string.IsNullOrEmpty(m.DependencyError) ||
+                     !string.IsNullOrEmpty(m.LoadError)))
+                    state = "[ERR]";
                 if (m.RequiresRestart && m.Enabled != m.Loaded)
                     state += "*";
                 string name = m.Name ?? m.Id ?? "?";

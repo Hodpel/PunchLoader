@@ -1,0 +1,9 @@
+/target:exe
+/out:build\tests\DependencyResolverTests.exe
+/reference:build\PunchLoader.dll
+/reference:deps\Unity\UnityEngine.dll
+/reference:deps\Game\Retail\Assembly-CSharp.dll
+/reference:deps\Game\Common\mscorlib.dll
+/reference:deps\Game\Common\System.dll
+/nostdlib
+tests\DependencyResolverTests.cs

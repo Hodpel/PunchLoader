@@ -5,3 +5,4 @@
 /reference:deps\Game\Common\mscorlib.dll
 /nostdlib
 src\modloader\PunchLoader.cs
+src\modloader\ModDependencies.cs
